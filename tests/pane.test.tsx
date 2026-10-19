@@ -46,9 +46,15 @@ const ANSWERS: Array<[string, unknown]> = [
   ['memory list', { docs: [{ title: 'Always rebase', body_preview: 'Ruling: rebase, never merge.' }] }],
   ['chart burndown project:demo', { series: [{ date: '2026-10-17', remaining: 4 }, { date: '2026-10-18', remaining: 3 }, { date: '2026-10-19', remaining: 2 }] }],
   ['check set', { ok: true }],
+  ['start', { status: 'active' }],
+  ['stop', { status: 'pending' }],
 ]
 
-function fakeWorld(on: On, calls: string[], repoRoot = '/home/me/demo') {
+function fakeWorld(on: On, calls: string[], repoRoot = '/home/me/demo', filled: string[] = []) {
+  on('prompt.fill', ($, e) => {
+    filled.push(e.text)
+    return { isFilled: true }
+  })
   on('process.run', ($, e) => {
     const args = e.argv.slice(1).filter(a => a !== '--json').join(' ')
     calls.push(args)
@@ -167,4 +173,61 @@ test('the memory tab draws the rulings and the hits for the active task', async 
     expect(await ui.find({ type: 'Text', text: /^A mod runs with your permissions\.$/ })).toBeDefined()
     await ui.unmount()
   }
+})
+
+const noteTexts = (session: { appended: () => readonly { message: unknown }[] }) =>
+  session.appended().map(row => JSON.stringify(row.message))
+
+test('Hand to Claude on a queued task starts it and fills the prompt, unsent', async ($, on) => {
+  const calls: string[] = []
+  const filled: string[] = []
+  fakeWorld(on, calls, '/home/me/demo', filled)
+  mock.clock(on, { now: NOW })
+  await $.command.run(typed('queue'))
+
+  const ui = await $.ui.mount({ plugin: 'tasqx-pane', surface: 'terminal', component: 'Pane', requestId: 'tasqx', props: PANE_PROPS })
+  await ui.press({ key: 'handoff-9' })
+  expect(calls).toContain('start 9')
+  expect(filled).toEqual(['Work on tasqx task #9: Next thing. Read its brief first.'])
+  await ui.unmount()
+})
+
+test('Hand to Claude on the active task fills the prompt without starting it again', async ($, on) => {
+  const calls: string[] = []
+  const filled: string[] = []
+  fakeWorld(on, calls, '/home/me/demo', filled)
+  mock.clock(on, { now: NOW })
+  await $.command.run(typed('task'))
+
+  const ui = await $.ui.mount({ plugin: 'tasqx-pane', surface: 'terminal', component: 'Pane', requestId: 'tasqx', props: PANE_PROPS })
+  await ui.press({ key: 'handoff-7' })
+  expect(calls.filter(c => c.startsWith('start'))).toEqual([])
+  expect(filled).toHaveLength(1)
+  await ui.unmount()
+})
+
+test('Start tells Claude in a note that starts no turn', async ($, on) => {
+  fakeWorld(on, [])
+  const session = mock.session(on)
+  mock.clock(on, { now: NOW })
+  await $.command.run(typed('queue'))
+
+  const ui = await $.ui.mount({ plugin: 'tasqx-pane', surface: 'terminal', component: 'Pane', requestId: 'tasqx', props: PANE_PROPS })
+  await ui.press({ key: 'start-9' })
+  const notes = noteTexts(session)
+  expect(notes).toHaveLength(1)
+  expect(notes[0]).toContain('started the tasqx timer on #9')
+  await ui.unmount()
+})
+
+test('with Tell Claude off, Start adds no note', { options: { tellClaude: 'off' } }, async ($, on) => {
+  fakeWorld(on, [])
+  const session = mock.session(on)
+  mock.clock(on, { now: NOW })
+  await $.command.run(typed('queue'))
+
+  const ui = await $.ui.mount({ plugin: 'tasqx-pane', surface: 'terminal', component: 'Pane', requestId: 'tasqx', props: PANE_PROPS })
+  await ui.press({ key: 'start-9' })
+  expect(noteTexts(session)).toEqual([])
+  await ui.unmount()
 })

@@ -13,7 +13,7 @@ It works in every repository whose folder name matches a [tasqx](https://github.
 │ active task, queue and project stats in a pane       │
 │  H   tasqx-pane · urgency 6.0  +mod  +claude-code    │
 │ ██████░░░░░░░░░░░░░░░░░░░░░░░░  32m / 3h 00m · 17%   │
-│ [ Stop timer ]                                       │
+│ [ Stop timer ] [ Hand to Claude ]                    │
 ╰──────────────────────────────────────────────────────╯
 ╭──────────────────────────────────────────────────────╮
 │ Checks                                           4/5 │
@@ -46,7 +46,10 @@ Under the prompt a status line shows the active task, also while the pane is clo
 ### What the pane can change
 
 - **Start** a task from the queue, and **Stop timer** on the active one (`s`).
+- **Hand to Claude** (`c`, or **→ Claude** on a queue row) starts the task's timer and puts a prompt in the prompt box, unsent: `Work on tasqx task #2265: <title>. Read its brief first.` Press Esc to get back to the prompt, change the text if you like, and press Enter. Claude never starts work you did not send.
 - **Press a check** to cycle it open → passed → failed.
+
+When you start or stop a timer or mark a check, the pane also leaves Claude a note it reads on its next turn, such as *the user started the tasqx timer on #2265*. The note starts no turn and does not show in the transcript, so Claude knows what you are working on without being asked to act. Turn it off with **Tell Claude** in `/config`.
 
 It does not complete tasks. Completing one goes through your agent or `tasqx done`, so the delivery note gets written first.
 
@@ -98,6 +101,8 @@ Under `/config` → **tasqx-pane**:
 | Open on start | `on` | Open the pane when a session starts in a repo that has a project. |
 | Status line | `on` | Show the active task under the prompt. |
 | Refresh every (seconds) | `15` | How often it reads tasqx (at least 5). |
+| Hand to Claude prompt | `Work on tasqx task #{id}: {title}. Read its brief first.` | What Hand to Claude puts in the prompt box. `{id}`, `{title}` and `{project}` are filled in. |
+| Tell Claude | `on` | Leave Claude a note when you start or stop a timer or mark a check in the pane. |
 
 ## How it finds the project
 
@@ -105,7 +110,7 @@ It takes the name of the git repository's folder (the main worktree's for a link
 
 ## Trust
 
-A mod runs with your permissions and is not sandboxed. This one runs only the `tasqx` binary you configure: `list`, `brief`, `report`, `projects` and `memory list` to read, and `start`, `stop` and `check set` when you press a button. `claude plugin validate` on a clone lists every call it makes.
+A mod runs with your permissions and is not sandboxed. This one runs only the `tasqx` binary you configure: `list`, `brief`, `report`, `projects`, `chart burndown` and `memory list` to read, and `start`, `stop` and `check set` when you press a button. Besides that it fills your prompt box when you press Hand to Claude, and leaves Claude the notes described above. `claude plugin validate` on a clone lists every call it makes.
 
 ## Develop
 

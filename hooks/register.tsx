@@ -19,7 +19,15 @@ const message = (err: unknown) => (err instanceof Error ? err.message : String(e
 const projectFilter = (p: string) => `project:${/\s/.test(p) ? `"${p}"` : p}`
 
 // Set from the plugin's options when the module registers.
-const cfg = { bin: 'tasqx', override: '', autoOpen: true, showStatus: true, periodMs: 15_000 }
+const cfg = {
+  bin: 'tasqx',
+  override: '',
+  autoOpen: true,
+  showStatus: true,
+  periodMs: 15_000,
+  tellClaude: true,
+  handoff: 'Work on tasqx task #{id}: {title}. Read its brief first.',
+}
 
 // What the module remembers between refreshes; a reload starts it over.
 const cache = {
@@ -160,18 +168,51 @@ function refresh($: Engine, force = false, full = false): Promise<void> {
   return cache.running
 }
 
-async function act($: Engine, args: string[], label: string) {
+/**
+ * Tells Claude what the person did in the pane: a row the model reads on its
+ * next turn, which starts no turn and which the transcript does not show.
+ */
+async function tell($: Engine, text: string) {
+  if (!cfg.tellClaude) return
+  try {
+    await $.session.append({ message: { type: 'user', content: [{ type: 'text', text: `[tasqx-pane] ${text}` }] } })
+  } catch {
+    // a session that takes no rows (a -p run with hooks off) just is not told
+  }
+}
+
+/** Runs one tasqx write; on success tells Claude `note` (when given). */
+async function act($: Engine, args: string[], label: string, note?: string): Promise<boolean> {
   await update($, busy, () => label)
   try {
     await tasqx($, args)
     $.ui.toast(`tasqx: ${label}`)
+    if (note) await tell($, note)
+    return true
   } catch (err) {
     $.ui.toast(`tasqx: ${label} failed: ${message(err)}`)
+    return false
   } finally {
     await update($, busy, () => null)
     await refresh($, true)
   }
 }
+
+/**
+ * Hands a task to Claude: starts its timer (unless it runs already), then puts
+ * the handoff prompt in the prompt box, unsent, for the person to send.
+ */
+async function handoff($: Engine, task: { shortId: number; title: string; project: string | null }, isActive: boolean) {
+  if (!isActive && !(await act($, ['start', String(task.shortId)], `started #${task.shortId}`))) return
+  const filled = await $.prompt.fill({ text: lib.handoffText(cfg.handoff, task) })
+  $.ui.toast(
+    filled.isFilled
+      ? `#${task.shortId} is in the prompt: Esc back to it, then Enter to send.`
+      : `tasqx: could not fill the prompt (${filled.refusal ?? 'no prompt box'}).`,
+  )
+}
+
+const quote = (title: string) => `"${title.length > 80 ? `${title.slice(0, 77)}…` : title}"`
 
 /** Opens (or retitles) the pane, then reads everything for it. */
 async function openPane($: Engine) {
@@ -193,6 +234,8 @@ export const register: Register = (on, options) => {
   cfg.autoOpen = options.autoOpen !== 'off'
   cfg.showStatus = options.statusLine !== 'off'
   cfg.periodMs = Math.max(5, Number(options.refreshSeconds) || 15) * 1000
+  cfg.tellClaude = options.tellClaude !== 'off'
+  cfg.handoff = String(options.handoffPrompt || cfg.handoff)
 
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -350,12 +393,27 @@ export const register: Register = (on, options) => {
           )
         : null
 
-    const startButton = (shortId: number, hotkey?: string) => (
+    const startButton = (t: { shortId: number; title: string }, hotkey?: string) => (
       <Button
-        key={`start-${shortId}`}
+        key={`start-${t.shortId}`}
         label="Start"
         hotkey={hotkey}
-        onPress={() => act($, ['start', String(shortId)], `started #${shortId}`)}
+        onPress={() =>
+          act(
+            $,
+            ['start', String(t.shortId)],
+            `started #${t.shortId}`,
+            `The user started the tasqx timer on #${t.shortId} ${quote(t.title)} from the pane, so it is their task in progress. Nothing is asked of you.`,
+          )
+        }
+      />
+    )
+    const handoffButton = (t: { shortId: number; title: string }, isActive: boolean, hotkey?: string) => (
+      <Button
+        key={`handoff-${t.shortId}`}
+        label={hotkey ? 'Hand to Claude' : '→ Claude'}
+        hotkey={hotkey}
+        onPress={() => handoff($, { ...t, project: snap.project }, isActive)}
       />
     )
 
@@ -383,7 +441,10 @@ export const register: Register = (on, options) => {
                       {'  '}urgency {top.urgency.toFixed(1)} · est {lib.formatDuration(top.estimateSeconds)}
                     </Text>
                   </Text>
-                  <Box marginTop={1}>{startButton(top.shortId, 's')}</Box>
+                  <Box marginTop={1} gap={1}>
+                    {startButton(top, 's')}
+                    {handoffButton(top, false, 'c')}
+                  </Box>
                 </Box>
               ) : (
                 dim('Nothing waiting in the working set.')
@@ -436,13 +497,21 @@ export const register: Register = (on, options) => {
                     `${a.freshTokens.toLocaleString('en-US')} fresh tokens${a.budgetTokens !== null ? ` of ${a.budgetTokens.toLocaleString('en-US')}` : ''}`,
                   )
                 : null}
-              <Box flexDirection="row" marginTop={1}>
+              <Box flexDirection="row" marginTop={1} gap={1}>
                 <Button
                   key="stop"
                   label="Stop timer"
                   hotkey="s"
-                  onPress={() => act($, ['stop', String(a.shortId)], `stopped #${a.shortId}`)}
+                  onPress={() =>
+                    act(
+                      $,
+                      ['stop', String(a.shortId)],
+                      `stopped #${a.shortId}`,
+                      `The user stopped the tasqx timer on #${a.shortId} ${quote(a.title)} from the pane.`,
+                    )
+                  }
                 />
+                {handoffButton(a, true, 'c')}
               </Box>
             </Box>,
             { color: 'suggestion', right: '▶ active' },
@@ -462,7 +531,12 @@ export const register: Register = (on, options) => {
                       plain
                       onPress={() => {
                         const to = lib.nextCheckState(c.state)
-                        return act($, ['check', 'set', String(a.shortId), String(i + 1), to], `check ${i + 1} ${to}`)
+                        return act(
+                          $,
+                          ['check', 'set', String(a.shortId), String(i + 1), to],
+                          `check ${i + 1} ${to}`,
+                          `The user marked check ${i + 1} of #${a.shortId} (${quote(c.body)}) ${to} from the pane.`,
+                        )
                       }}
                     >
                       <Text color={c.state === 'passed' ? 'success' : c.state === 'failed' ? 'error' : 'inactive'}>
@@ -549,7 +623,8 @@ export const register: Register = (on, options) => {
                   {t.blocked ? <Text color="warning">{'  blocked'}</Text> : null}
                 </Text>
               </Box>
-              {t.blocked ? null : startButton(t.shortId)}
+              {t.blocked ? null : startButton(t)}
+              {t.blocked ? null : handoffButton(t, false)}
             </Box>
           ))}
           {more > 0 ? dim(`…${more} more: tasqx list ${projectFilter(snap.project)} @working`) : null}

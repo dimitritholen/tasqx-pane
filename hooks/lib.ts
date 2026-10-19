@@ -249,3 +249,11 @@ export function meter(ratio: number, width: number): { filled: string; empty: st
 export function priorityColor(priority: string | null): 'warning' | 'suggestion' | 'inactive' {
   return priority === 'H' ? 'warning' : priority === 'M' ? 'suggestion' : 'inactive'
 }
+
+/** The handoff prompt: `{id}`, `{title}` and `{project}` filled in. */
+export function handoffText(template: string, task: { shortId: number; title: string; project: string | null }): string {
+  return template
+    .replaceAll('{id}', String(task.shortId))
+    .replaceAll('{title}', task.title)
+    .replaceAll('{project}', task.project ?? '')
+}

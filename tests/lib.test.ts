@@ -145,3 +145,9 @@ describe('charts', () => {
     expect(lib.meter(0.25, 8)).toEqual({ filled: '██', empty: '░░░░░░' })
   })
 })
+
+test('the handoff prompt fills in id, title and project', () => {
+  expect(lib.handoffText('#{id} {title} in {project}, #{id}', { shortId: 9, title: 'Next', project: 'demo' })).toBe(
+    '#9 Next in demo, #9',
+  )
+})
