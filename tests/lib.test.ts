@@ -112,3 +112,36 @@ describe('small rules', () => {
     expect(lib.bar(3, 4)).toBe('[####]')
   })
 })
+
+describe('charts', () => {
+  test('the sparkline scales to the largest value and keeps the last ones', () => {
+    expect(lib.sparkline([0, 4, 8], 3)).toBe(' ▄█')
+    expect(lib.sparkline([1, 2, 3, 4], 2)).toBe('▆█')
+    expect(lib.sparkline([1, 100], 2)).toBe('▁█')
+  })
+
+  test('base64 matches the standard alphabet and padding', () => {
+    const enc = (t: string) => lib.base64(new TextEncoder().encode(t))
+    expect(enc('Man')).toBe('TWFu')
+    expect(enc('Ma')).toBe('TWE=')
+    expect(enc('M')).toBe('TQ==')
+  })
+
+  test('raster cells stack eighth blocks bottom-up, the last column in its own color', () => {
+    const { cells, columns } = lib.barCells([4, 16], 10, 2, 0x111111, 0x222222)
+    expect(columns).toBe(2)
+    // decode: 2 columns x 2 rows x [codePoint, fg, bg]
+    const bin = Uint8Array.from(atob(cells), c => c.charCodeAt(0))
+    const words = new Uint32Array(bin.buffer)
+    const at = (row: number, col: number) => words.slice((row * 2 + col) * 3, (row * 2 + col) * 3 + 3)
+    expect(String.fromCodePoint(at(0, 0)[0]!)).toBe(' ')
+    expect(String.fromCodePoint(at(1, 0)[0]!)).toBe('▄')
+    expect(String.fromCodePoint(at(0, 1)[0]!)).toBe('█')
+    expect(at(0, 1)[1]).toBe(0x222222)
+    expect(at(1, 0)[2]).toBe(lib.DEFAULT_COLOR)
+  })
+
+  test('the meter fills to its ratio', () => {
+    expect(lib.meter(0.25, 8)).toEqual({ filled: '██', empty: '░░░░░░' })
+  })
+})

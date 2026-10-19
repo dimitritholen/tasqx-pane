@@ -179,3 +179,73 @@ export function touchesTasqx(tool: string, input: Json): boolean {
   if (tool.startsWith('mcp__tasqx__')) return true
   return tool === 'Bash' && /\btasqx\b/.test(String(input?.command ?? ''))
 }
+
+const EIGHTHS = ' ▁▂▃▄▅▆▇█'
+
+/** The last `width` values, scaled so 0 is empty and the largest is full. */
+function fit(values: readonly number[], width: number): { tail: number[]; max: number } {
+  const tail = values.slice(-Math.max(1, width))
+  return { tail, max: Math.max(1, ...tail) }
+}
+
+/** A one-row sparkline of eighth blocks, for surfaces without a Raster. */
+export function sparkline(values: readonly number[], width: number): string {
+  const { tail, max } = fit(values, width)
+  return tail.map(v => EIGHTHS[Math.max(v > 0 ? 1 : 0, Math.round((v / max) * 8))]).join('')
+}
+
+const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+
+export function base64(bytes: Uint8Array): string {
+  let out = ''
+  for (let i = 0; i < bytes.length; i += 3) {
+    const [a = 0, b = 0, c = 0] = [bytes[i], bytes[i + 1], bytes[i + 2]]
+    const n = (a << 16) | (b << 8) | c
+    out += B64[(n >> 18) & 63]! + B64[(n >> 12) & 63]!
+    out += i + 1 < bytes.length ? B64[(n >> 6) & 63]! : '='
+    out += i + 2 < bytes.length ? B64[n & 63]! : '='
+  }
+  return out
+}
+
+export const DEFAULT_COLOR = 0x01000000
+
+/**
+ * A bar chart `rows` cells tall for a Raster: one column per value (the last
+ * `columns` of them), eighth blocks stacked bottom-up, the last column in
+ * `lastColor`. Returns the Raster's `cells` and how many columns it drew.
+ */
+export function barCells(
+  values: readonly number[],
+  columns: number,
+  rows: number,
+  color: number,
+  lastColor: number,
+): { cells: string; columns: number } {
+  const { tail, max } = fit(values, columns)
+  const words = new Uint32Array(tail.length * rows * 3)
+  tail.forEach((v, x) => {
+    const level = v > 0 ? Math.max(1, Math.round((v / max) * rows * 8)) : 0
+    for (let r = 0; r < rows; r++) {
+      const cell = Math.min(8, Math.max(0, level - (rows - 1 - r) * 8))
+      const i = (r * tail.length + x) * 3
+      words[i] = EIGHTHS.codePointAt(cell)!
+      words[i + 1] = x === tail.length - 1 ? lastColor : color
+      words[i + 2] = DEFAULT_COLOR
+    }
+  })
+  return { cells: base64(new Uint8Array(words.buffer)), columns: tail.length }
+}
+
+/** A filled meter `width` cells wide: the filled and the empty part. */
+export function meter(ratio: number, width: number): { filled: string; empty: string } {
+  const cells = Math.max(1, width)
+  const n = Math.min(cells, Math.max(0, Math.round(ratio * cells)))
+  return { filled: '█'.repeat(n), empty: '░'.repeat(cells - n) }
+}
+
+/** The theme color for a priority chip. */
+// No red here: red on a pane's grey reads poorly. Red is kept for overdue and failed.
+export function priorityColor(priority: string | null): 'warning' | 'suggestion' | 'inactive' {
+  return priority === 'H' ? 'warning' : priority === 'M' ? 'suggestion' : 'inactive'
+}

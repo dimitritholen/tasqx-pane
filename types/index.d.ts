@@ -50,6 +50,8 @@ export type StatusCount = {
 
 export type Ruling = { title: string; preview: string }
 
+export type Burndown = { from: string | null; remaining: number[] }
+
 export type ProjectSource = 'repo' | 'config' | 'none'
 
 export type Snapshot = {
@@ -63,6 +65,8 @@ export type Snapshot = {
   recentDone: TaskRef[]
   stats: StatusCount[]
   rulings: Ruling[]
+  /** Open tasks left at the end of each of the last days, oldest first. */
+  burndown: Burndown
   fetchedAt: number
   /** False when only the active task was read (the pane was closed). */
   isFull: boolean

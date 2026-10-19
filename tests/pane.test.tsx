@@ -37,13 +37,14 @@ const ANSWERS: Array<[string, unknown]> = [
         budget_tokens: null,
       },
       neighbourhood: { depends_on: [], blocks: [{ short_id: 8, title: 'Share it', status: 'pending' }] },
-      memory: { hits: [] },
+      memory: { hits: [{ title: 'Mods run unsandboxed', source: 'DESIGN.md', snippet: 'A mod runs with your permissions.' }] },
     },
   ],
   ['list project:demo @working', { tasks: [task, { ...task, id: 'u-9', short_id: 9, title: 'Next thing', status: 'pending' }], total: 2 }],
   ['list project:demo status:done', { tasks: [{ short_id: 2, title: 'Old work', status: 'done' }] }],
   ['report status project:demo', { groups: [{ status: 'done', count: 1, est_total: 'PT1H', tracked_total: 'PT50M', overdue: 0 }] }],
   ['memory list', { docs: [{ title: 'Always rebase', body_preview: 'Ruling: rebase, never merge.' }] }],
+  ['chart burndown project:demo', { series: [{ date: '2026-10-17', remaining: 4 }, { date: '2026-10-18', remaining: 3 }, { date: '2026-10-19', remaining: 2 }] }],
   ['check set', { ok: true }],
 ]
 
@@ -95,11 +96,12 @@ test('the pane shows the active task, its checks and what it unblocks', async ($
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ plugin: 'tasqx-pane', surface, component: 'Pane', requestId: 'tasqx', props: PANE_PROPS })
-    expect(await ui.find({ type: 'Text', text: /#7 Ship the pane/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /Checks 1\/2/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^#7$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^Ship the pane$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^1\/2$/ })).toBeDefined()
     expect(await ui.find({ key: 'check-c2' })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /#8 pending · Share it/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /Dock tasqx beside the transcript/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /unblocks #8.*Share it/ })).toBeDefined()
+    expect(await ui.find({ key: 'desc-md' })).toBeDefined()
     await ui.unmount()
   }
 })
@@ -133,7 +135,36 @@ test('a folder with no project says so instead of showing another project', asyn
   await $.command.run(typed('queue'))
 
   const ui = await $.ui.mount({ plugin: 'tasqx-pane', surface: 'terminal', component: 'Pane', requestId: 'tasqx', props: PANE_PROPS })
-  expect(await ui.find({ type: 'Text', text: /no tasqx project named "scratch"/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /no project "scratch"/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /tasqx init scratch/ })).toBeDefined()
   await ui.unmount()
+})
+
+test('the project tab draws the burndown as a Raster on the terminal and as text elsewhere', async ($, on) => {
+  fakeWorld(on, [])
+  mock.clock(on, { now: NOW })
+  await $.command.run(typed('project'))
+
+  const term = await $.ui.mount({ plugin: 'tasqx-pane', surface: 'terminal', component: 'Pane', requestId: 'tasqx', props: PANE_PROPS })
+  expect((await term.find({ key: 'burndown' }))?.type).toBe('Raster')
+  expect(await term.find({ type: 'Text', text: /^2 open now$/ })).toBeDefined()
+  await term.unmount()
+
+  const desk = await $.ui.mount({ plugin: 'tasqx-pane', surface: 'desktop', component: 'Pane', requestId: 'tasqx', props: PANE_PROPS })
+  expect(await desk.find({ type: 'Text', text: /^█▆▄$/ })).toBeDefined()
+  await desk.unmount()
+})
+
+test('the memory tab draws the rulings and the hits for the active task', async ($, on) => {
+  fakeWorld(on, [])
+  mock.clock(on, { now: NOW })
+  await $.command.run(typed('memory'))
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ plugin: 'tasqx-pane', surface, component: 'Pane', requestId: 'tasqx', props: PANE_PROPS })
+    expect(await ui.find({ type: 'Text', text: /Always rebase/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /Mods run unsandboxed/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^A mod runs with your permissions\.$/ })).toBeDefined()
+    await ui.unmount()
+  }
 })

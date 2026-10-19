@@ -5,32 +5,40 @@ A [Claude Code mod](https://code.claude.com/docs/en/plugins/mods/overview) that 
 It works in every repository whose folder name matches a [tasqx](https://github.com/dimitritholen/tasqx) project, and reads your store through the `tasqx` CLI.
 
 ```text
-┌ tasqx · tasqx-pane ─────────────────────────────────────┐
-│ [ Task ] [ Queue ] [ Project ] [ Memory ] [ Refresh ]   │
-│ tasqx-pane · updated 14:41:07                           │
-│                                                         │
-│ #2270 tasqx-pane v0.1: a Claude Code mod showing …      │
-│ priority H · tasqx-pane · urgency 6.0 · +mod            │
-│ 42m of 3h 00m [#####-------------------] 23%            │
-│ [ Stop timer ]                                          │
-│                                                         │
-│ Description                                             │
-│ A Claude Code mod that docks a "tasqx" pane beside …    │
-│                                                         │
-│ Checks 2/5  [####------]                                │
-│ [x] claude plugin validate passes on the mod folder     │
-│ [x] claude plugin test passes                           │
-│ [ ] pane shows active task, checks, queue and stats     │
-└─────────────────────────────────────────────────────────┘
+ [ Task ] [ Queue ] [ Project ] [ Memory ] [ ↻ ]
+ tasqx-pane                              updated 15:12
+╭──────────────────────────────────────────────────────╮
+│ #2270                                       ▶ active │
+│ tasqx-pane v0.1: a Claude Code mod showing the       │
+│ active task, queue and project stats in a pane       │
+│  H   tasqx-pane · urgency 6.0  +mod  +claude-code    │
+│ ██████░░░░░░░░░░░░░░░░░░░░░░░░  32m / 3h 00m · 17%   │
+│ [ Stop timer ]                                       │
+╰──────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────╮
+│ Checks                                           4/5 │
+│ ████████████████████████░░░░░░                       │
+│ ✔ claude plugin validate passes on the mod folder    │
+│ ○ pane shows active task, checks, queue and stats    │
+╰──────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────╮
+│ Burndown                                  6 open now │
+│ █▇                                                ▂  │
+│ ██▆▃▁                                            ▃█  │
+│ 2026-08-21           peak 53                   today │
+╰──────────────────────────────────────────────────────╯
 ```
 
 ## What it shows
+
+Each section is a card. Colors come from your Claude Code theme, so the pane reads in light and dark themes alike; red is kept for overdue tasks, failed checks and errors.
+
 
 | Tab | Hotkey | What is on it |
 | --- | --- | --- |
 | **Task** | `t` | The active task: title, priority, tags, tracked time against the estimate, due date, token use against its budget, the description (its first note), the checks, what it depends on and unblocks, and the newest note. With no active task it shows the next one up, with a Start button. |
 | **Queue** | `q` | The project's working set by urgency (blocked tasks dimmed), each with a Start button. |
-| **Project** | `p` | Done/total with a progress bar, open work, estimated time left, time tracked, overdue and blocked counts, a table per status, and the last five finished tasks. |
+| **Project** | `p` | Done/total with a progress bar, a burndown of open tasks over the last 60 days (a colored bar chart in the terminal, a sparkline in the desktop app and VS Code), open work, estimated time left, time tracked, overdue and blocked counts, a table per status, and the last five finished tasks. |
 | **Memory** | `m` | The project's standing rulings, and the memory hits tasqx finds for the active task. |
 
 Under the prompt a status line shows the active task, also while the pane is closed: `▶ #2270 42m / 3h 00m · 2/5 checks · tasqx-pane v0.1 …`

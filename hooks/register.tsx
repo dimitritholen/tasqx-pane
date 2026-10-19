@@ -1,12 +1,13 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { Color, EngineInterface, Register, RenderChildren } from 'claude-code'
 
-import type { ActiveTask, Snapshot, Tab } from '../types'
+import type { ActiveTask, Snapshot, StatusCount, Tab } from '../types'
 import * as lib from './lib'
 
 type Engine = EngineInterface
 
 const PANE = 'tasqx'
+const BURNDOWN_DAYS = 60
 const TABS: readonly Tab[] = ['task', 'queue', 'project', 'memory']
 const TAB_LABEL: Record<Tab, string> = { task: 'Task', queue: 'Queue', project: 'Project', memory: 'Memory' }
 
@@ -76,6 +77,7 @@ async function load($: Engine, isFull: boolean): Promise<Snapshot> {
     recentDone: [],
     stats: [],
     rulings: [],
+    burndown: { from: null, remaining: [] },
     fetchedAt,
     isFull,
     error: null,
@@ -102,12 +104,15 @@ async function load($: Engine, isFull: boolean): Promise<Snapshot> {
 
     if (isFull && project) {
       const scope = projectFilter(project)
-      const [queue, done, report, rulings] = await Promise.all([
+      const [queue, done, report, rulings, burndown] = await Promise.all([
         tasqx($, ['list', scope, '@working', '--limit', '15']),
         tasqx($, ['list', scope, 'status:done', '--sort', '-modified', '--limit', '5']),
         tasqx($, ['report', 'status', scope]),
         tasqx($, ['memory', 'list', '--project', project, '--standing', '--limit', '10']),
+        tasqx($, ['chart', 'burndown', scope, '--days', String(BURNDOWN_DAYS)]),
       ])
+      const series: any[] = burndown.series ?? []
+      base.burndown = { from: series[0]?.date ?? null, remaining: series.map(d => Number(d.remaining) || 0) }
       base.queue = (queue.tasks ?? []).filter((t: any) => t.status !== 'active').map(lib.toQueueRow)
       base.queueTotal = queue.total ?? base.queue.length
       base.recentDone = (done.tasks ?? []).map(lib.toTaskRef)
@@ -235,23 +240,46 @@ export const register: Register = (on, options) => {
     return result
   }).catch(($, e, next) => next(e))
 
+
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text, Button } = $.ui.resolve(e)
+    const { Box, Text, Button, Markdown } = $.ui.resolve(e)
+    const Raster = e.surface === 'terminal' ? $.ui.resolve(e).Raster : null
     const snap = await read($, snapshot)
     const current = await read($, tab)
     const working = await read($, busy)
     const now = await $.clock.now()
-    const width = Math.max(20, e.props.bodyColumns)
+    const width = Math.max(24, e.props.bodyColumns)
+    // a card's border and padding take four columns
+    const inner = width - 4
     // a snapshot read while the pane was closed lacks the queue: read it whole
     if (snap && !snap.isFull) $.clock.after(0, () => void refresh($, false, true))
 
-    const heading = (text: string) => (
-      <Text bold color="claude">
-        {text}
+    const card = (key: string, title: string, body: RenderChildren, opts: { color?: Color; titleColor?: Color; right?: string } = {}) => (
+      <Box key={key} flexDirection="column" borderStyle="round" borderColor={opts.color ?? 'inactive'} paddingX={1}>
+        <Box flexDirection="row" justifyContent="space-between" gap={1}>
+          <Text bold color={opts.titleColor} wrap="truncate-end">
+            {title}
+          </Text>
+          {opts.right ? <Text dimColor>{opts.right}</Text> : null}
+        </Box>
+        {body}
+      </Box>
+    )
+    const chip = (text: string, color: Color) => (
+      <Text inverse bold color={color}>
+        {` ${text} `}
       </Text>
     )
+    const meter = (ratio: number, cells: number, color: Color) => {
+      const m = lib.meter(ratio, cells)
+      return (
+        <Text>
+          <Text color={color}>{m.filled}</Text>
+          <Text dimColor>{m.empty}</Text>
+        </Text>
+      )
+    }
     const dim = (text: string) => <Text dimColor>{text}</Text>
-    const gap = () => <Text> </Text>
 
     const tabs = (
       <Box flexDirection="row" gap={1} flexWrap="wrap">
@@ -264,7 +292,7 @@ export const register: Register = (on, options) => {
             onPress={() => update($, tab, () => t)}
           />
         ))}
-        <Button key="refresh" label="Refresh" hotkey="r" onPress={() => refresh($, true)} />
+        <Button key="refresh" label="↻" hotkey="r" onPress={() => refresh($, true)} />
       </Box>
     )
 
@@ -277,19 +305,17 @@ export const register: Register = (on, options) => {
       )
     }
 
-    const updated = new Date(snap.fetchedAt).toTimeString().slice(0, 8)
-    const scope =
-      snap.project === null
-        ? `no tasqx project named "${snap.dirName ?? '?'}"`
-        : `${snap.project}${snap.projectSource === 'config' ? ' (from /config)' : ''}`
+    const updated = new Date(snap.fetchedAt).toTimeString().slice(0, 5)
     const header = (
       <Box flexDirection="column">
         {tabs}
-        <Text dimColor wrap="truncate-end">
-          {scope} · updated {updated}
-          {working ? ` · ${working}…` : ''}
-        </Text>
-        {gap()}
+        <Box flexDirection="row" justifyContent="space-between" gap={1} paddingX={1}>
+          <Text bold wrap="truncate-end">
+            {snap.project ?? `no project "${snap.dirName ?? '?'}"`}
+            {snap.projectSource === 'config' ? <Text dimColor> (from /config)</Text> : null}
+          </Text>
+          <Text dimColor>{working ? `${working}…` : `updated ${updated}`}</Text>
+        </Box>
       </Box>
     )
 
@@ -297,16 +323,30 @@ export const register: Register = (on, options) => {
       return (
         <Box flexDirection="column">
           {header}
-          <Text color="error">{snap.error}</Text>
-          {dim(`Is tasqx installed? Set its path under /config → tasqx-pane → tasqx binary (now "${cfg.bin}").`)}
+          {card(
+            'error',
+            'tasqx did not answer',
+            <Box flexDirection="column">
+              <Text color="error" wrap="wrap">
+                {snap.error}
+              </Text>
+              {dim(`Is tasqx installed? Set its path under /config → tasqx-pane → tasqx binary (now "${cfg.bin}").`)}
+            </Box>,
+            { color: 'error' },
+          )}
         </Box>
       )
     }
 
     const noProject =
       snap.project === null
-        ? dim(
-            `Name a project after this folder (tasqx init ${snap.dirName ?? '<name>'}) or set one under /config → tasqx-pane → Project override.`,
+        ? card(
+            'no-project',
+            'No project for this folder',
+            dim(
+              `Create one with tasqx init ${snap.dirName ?? '<name>'}, or pick one under /config → tasqx-pane → Project override.`,
+            ),
+            { color: 'warning' },
           )
         : null
 
@@ -319,25 +359,36 @@ export const register: Register = (on, options) => {
       />
     )
 
+    const statusIcon = (status: string) =>
+      status === 'done' ? <Text color="success">✔</Text> : status === 'active' ? <Text color="suggestion">▶</Text> : <Text color="warning">●</Text>
+
     const taskTab = () => {
       const a = snap.active
       if (!a) {
         const top = snap.queue.find(t => !t.blocked)
         return (
           <Box flexDirection="column">
-            {dim('No active task.')}
-            {top && gap()}
-            {top && heading('Next up')}
-            {top && (
-              <Text wrap="wrap">
-                #{top.shortId} {top.title}
-              </Text>
+            {card(
+              'idle',
+              'No active task',
+              top ? (
+                <Box flexDirection="column">
+                  {dim('Next up')}
+                  <Text bold wrap="wrap">
+                    #{top.shortId} {top.title}
+                  </Text>
+                  <Text>
+                    {chip(top.priority ?? '-', lib.priorityColor(top.priority))}
+                    <Text dimColor>
+                      {'  '}urgency {top.urgency.toFixed(1)} · est {lib.formatDuration(top.estimateSeconds)}
+                    </Text>
+                  </Text>
+                  <Box marginTop={1}>{startButton(top.shortId, 's')}</Box>
+                </Box>
+              ) : (
+                dim('Nothing waiting in the working set.')
+              ),
             )}
-            {top &&
-              dim(
-                `${top.priority ?? '-'} · urgency ${top.urgency.toFixed(1)} · est ${lib.formatDuration(top.estimateSeconds)}`,
-              )}
-            {top && <Box>{startButton(top.shortId, 's')}</Box>}
             {noProject}
           </Box>
         )
@@ -348,174 +399,267 @@ export const register: Register = (on, options) => {
       const isOver = a.estimateSeconds !== null && ratio > 1
       const passed = a.checks.filter(c => c.state === 'passed').length
       const isOverdue = a.due !== null && Date.parse(a.due) < now
-      const meta = [
-        a.priority ? `priority ${a.priority}` : null,
-        a.project,
-        `urgency ${a.urgency.toFixed(1)}`,
-        ...a.tags.map(t => `+${t}`),
-      ].filter(Boolean)
+      const timeText = a.estimateSeconds
+        ? ` ${lib.formatDuration(elapsed)} / ${lib.formatDuration(a.estimateSeconds)} · ${Math.round(ratio * 100)}%`
+        : ` ${lib.formatDuration(elapsed)} tracked`
 
       return (
         <Box flexDirection="column">
-          <Text bold wrap="wrap">
-            #{a.shortId} {a.title}
-          </Text>
-          {dim(meta.join(' · '))}
-          <Text color={isOver ? 'warning' : undefined}>
-            {lib.formatDuration(elapsed)}
-            {a.estimateSeconds ? ` of ${lib.formatDuration(a.estimateSeconds)} ` : ' tracked'}
-            {a.estimateSeconds ? lib.bar(ratio, Math.min(24, width - 24)) : ''}
-            {a.estimateSeconds ? ` ${Math.round(ratio * 100)}%` : ''}
-          </Text>
-          {a.due && (
-            <Text color={isOverdue ? 'error' : undefined}>
-              Due {a.due.slice(0, 10)} ({lib.relativeTime(a.due, now)})
-            </Text>
+          {card(
+            'task',
+            `#${a.shortId}`,
+            <Box flexDirection="column">
+              <Text bold wrap="wrap">
+                {a.title}
+              </Text>
+              <Text wrap="truncate-end">
+                {chip(a.priority ?? '-', lib.priorityColor(a.priority))}
+                <Text dimColor>
+                  {'  '}
+                  {a.project} · urgency {a.urgency.toFixed(1)}
+                </Text>
+                {a.tags.map(t => (
+                  <Text key={`tag-${t}`} color="suggestion">{`  +${t}`}</Text>
+                ))}
+              </Text>
+              <Text>
+                {a.estimateSeconds ? meter(Math.min(1, ratio), Math.max(8, inner - timeText.length), isOver ? 'warning' : 'suggestion') : null}
+                <Text color={isOver ? 'warning' : undefined}>{timeText}</Text>
+              </Text>
+              {a.due ? (
+                <Text color={isOverdue ? 'error' : undefined}>
+                  Due {a.due.slice(0, 10)} · {lib.relativeTime(a.due, now)}
+                </Text>
+              ) : null}
+              {a.freshTokens > 0 || a.budgetTokens !== null
+                ? dim(
+                    `${a.freshTokens.toLocaleString('en-US')} fresh tokens${a.budgetTokens !== null ? ` of ${a.budgetTokens.toLocaleString('en-US')}` : ''}`,
+                  )
+                : null}
+              <Box flexDirection="row" marginTop={1}>
+                <Button
+                  key="stop"
+                  label="Stop timer"
+                  hotkey="s"
+                  onPress={() => act($, ['stop', String(a.shortId)], `stopped #${a.shortId}`)}
+                />
+              </Box>
+            </Box>,
+            { color: 'suggestion', right: '▶ active' },
           )}
-          {(a.freshTokens > 0 || a.budgetTokens !== null) &&
-            dim(
-              `${a.freshTokens.toLocaleString('en-US')} fresh tokens${a.budgetTokens !== null ? ` of ${a.budgetTokens.toLocaleString('en-US')} budget` : ''}`,
-            )}
-          <Box flexDirection="row" gap={1} marginTop={1}>
-            <Button
-              key="stop"
-              label="Stop timer"
-              hotkey="s"
-              onPress={() => act($, ['stop', String(a.shortId)], `stopped #${a.shortId}`)}
-            />
-          </Box>
 
-          {a.description && gap()}
-          {a.description && heading('Description')}
-          {a.description && <Text wrap="wrap">{a.description}</Text>}
+          {a.description ? card('desc', 'Description', <Markdown key="desc-md" text={a.description} />) : null}
 
-          {a.checks.length > 0 && gap()}
-          {a.checks.length > 0 && heading(`Checks ${passed}/${a.checks.length}  ${lib.bar(passed / a.checks.length, 10)}`)}
-          {a.checks.map((c, i) => (
-            <Button
-              key={`check-${c.id}`}
-              plain
-              onPress={() => {
-                const to = lib.nextCheckState(c.state)
-                return act($, ['check', 'set', String(a.shortId), String(i + 1), to], `check ${i + 1} ${to}`)
-              }}
-            >
-              <Text color={c.state === 'passed' ? 'success' : c.state === 'failed' ? 'error' : undefined}>
-                {c.state === 'passed' ? '[x]' : c.state === 'failed' ? '[!]' : '[ ]'}
-              </Text>{' '}
-              {c.body}
-            </Button>
-          ))}
-          {a.checks.length > 0 && dim('Press a check to cycle open → passed → failed.')}
+          {a.checks.length > 0
+            ? card(
+                'checks',
+                'Checks',
+                <Box flexDirection="column">
+                  {meter(passed / a.checks.length, Math.min(inner, 30), passed === a.checks.length ? 'success' : 'suggestion')}
+                  {a.checks.map((c, i) => (
+                    <Button
+                      key={`check-${c.id}`}
+                      plain
+                      onPress={() => {
+                        const to = lib.nextCheckState(c.state)
+                        return act($, ['check', 'set', String(a.shortId), String(i + 1), to], `check ${i + 1} ${to}`)
+                      }}
+                    >
+                      <Text color={c.state === 'passed' ? 'success' : c.state === 'failed' ? 'error' : 'inactive'}>
+                        {c.state === 'passed' ? '✔' : c.state === 'failed' ? '✘' : '○'}
+                      </Text>{' '}
+                      {c.body}
+                    </Button>
+                  ))}
+                  {dim('press a check: open → passed → failed')}
+                </Box>,
+                { right: `${passed}/${a.checks.length}`, color: passed === a.checks.length ? 'success' : undefined },
+              )
+            : null}
 
-          {a.dependsOn.length > 0 && gap()}
-          {a.dependsOn.length > 0 && heading('Depends on')}
-          {a.dependsOn.map(t => (
-            <Text key={`dep-${t.shortId}`} wrap="truncate-end" color={t.status === 'done' ? undefined : 'warning'}>
-              #{t.shortId} {t.status} · {t.title}
-            </Text>
-          ))}
-          {a.blocks.length > 0 && gap()}
-          {a.blocks.length > 0 && heading('Unblocks')}
-          {a.blocks.map(t => (
-            <Text key={`blk-${t.shortId}`} wrap="truncate-end">
-              #{t.shortId} {t.status} · {t.title}
-            </Text>
-          ))}
+          {a.dependsOn.length > 0 || a.blocks.length > 0
+            ? card(
+                'links',
+                'Dependencies',
+                <Box flexDirection="column">
+                  {a.dependsOn.map(t => (
+                    <Text key={`dep-${t.shortId}`} wrap="truncate-end">
+                      {statusIcon(t.status)} <Text dimColor>needs #{t.shortId}</Text> {t.title}
+                    </Text>
+                  ))}
+                  {a.blocks.map(t => (
+                    <Text key={`blk-${t.shortId}`} wrap="truncate-end">
+                      <Text color="suggestion">→</Text> <Text dimColor>unblocks #{t.shortId}</Text> {t.title}
+                    </Text>
+                  ))}
+                </Box>,
+              )
+            : null}
 
-          {a.latestNote && gap()}
-          {a.latestNote &&
-            heading(`Newest note · ${lib.relativeTime(a.latestNote.created, now)} · ${a.noteCount} in all`)}
-          {a.latestNote && <Text wrap="wrap">{a.latestNote.body}</Text>}
+          {a.latestNote
+            ? card('note', 'Newest note', <Markdown key="note-md" text={a.latestNote.body} />, {
+                right: `${lib.relativeTime(a.latestNote.created, now)} · ${a.noteCount} notes`,
+              })
+            : null}
 
-          {snap.otherActive.length > 0 && gap()}
-          {snap.otherActive.length > 0 && heading('Also active')}
-          {snap.otherActive.map(t => (
-            <Text key={`also-${t.shortId}`} wrap="truncate-end">
-              #{t.shortId} {t.title}
-            </Text>
-          ))}
+          {snap.otherActive.length > 0
+            ? card(
+                'also',
+                'Also active',
+                <Box flexDirection="column">
+                  {snap.otherActive.map(t => (
+                    <Text key={`also-${t.shortId}`} wrap="truncate-end">
+                      <Text color="suggestion">▶</Text> #{t.shortId} {t.title}
+                    </Text>
+                  ))}
+                </Box>,
+                { color: 'warning' },
+              )
+            : null}
         </Box>
       )
     }
 
     const queueTab = () => {
-      if (snap.project === null) return <Box flexDirection="column">{noProject}</Box>
-      if (snap.queue.length === 0) return dim('The working set is empty.')
+      if (snap.project === null) return noProject
+      if (snap.queue.length === 0) return card('queue', 'Working set', dim('Nothing waiting.'))
       const more = snap.queueTotal - snap.queue.length
-      return (
+      return card(
+        'queue',
+        'Working set',
         <Box flexDirection="column">
-          {heading(`Working set · ${snap.queueTotal} by urgency`)}
           {snap.queue.map(t => (
             <Box key={`q-${t.shortId}`} flexDirection="row" gap={1}>
-              {startButton(t.shortId)}
-              <Box flexDirection="column" flexShrink={1}>
+              {chip(t.priority ?? '-', t.blocked ? 'inactive' : lib.priorityColor(t.priority))}
+              <Box flexDirection="column" flexGrow={1} flexShrink={1}>
                 <Text wrap="truncate-end" dimColor={t.blocked}>
-                  #{t.shortId} {t.title}
+                  <Text dimColor>#{t.shortId}</Text> {t.title}
                 </Text>
-                <Text dimColor wrap="truncate-end">
-                  {[
-                    t.priority ?? '-',
-                    t.urgency.toFixed(1),
-                    t.estimateSeconds ? `est ${lib.formatDuration(t.estimateSeconds)}` : null,
-                    t.due ? `due ${lib.relativeTime(t.due, now)}` : null,
-                    t.blocked ? 'blocked' : null,
-                    t.status === 'pending' ? null : t.status,
-                  ]
-                    .filter(Boolean)
-                    .join(' · ')}
+                <Text wrap="truncate-end">
+                  <Text dimColor>
+                    {[
+                      t.urgency.toFixed(1),
+                      t.estimateSeconds ? lib.formatDuration(t.estimateSeconds) : null,
+                      t.status === 'pending' ? null : t.status,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </Text>
+                  {t.due ? <Text color={Date.parse(t.due) < now ? 'error' : 'warning'}>{`  due ${lib.relativeTime(t.due, now)}`}</Text> : null}
+                  {t.blocked ? <Text color="warning">{'  blocked'}</Text> : null}
                 </Text>
               </Box>
+              {t.blocked ? null : startButton(t.shortId)}
             </Box>
           ))}
-          {more > 0 && dim(`…and ${more} more: tasqx list ${projectFilter(snap.project)} @working`)}
-        </Box>
+          {more > 0 ? dim(`…${more} more: tasqx list ${projectFilter(snap.project)} @working`) : null}
+        </Box>,
+        { right: `${snap.queueTotal} by urgency` },
       )
     }
 
     const projectTab = () => {
-      if (snap.project === null) return <Box flexDirection="column">{noProject}</Box>
-      const total = snap.stats.reduce((n, s) => n + s.count, 0)
+      if (snap.project === null) return noProject
+      const sum = (pick: (s: StatusCount) => number, only?: (status: string) => boolean) =>
+        snap.stats.filter(s => !only || only(s.status)).reduce((n, s) => n + pick(s), 0)
+      const isOpen = (status: string) => status !== 'done' && status !== 'cancelled'
+      const total = sum(s => s.count)
       const done = snap.stats.find(s => s.status === 'done')?.count ?? 0
-      const open = snap.stats
-        .filter(s => s.status !== 'done' && s.status !== 'cancelled')
-        .reduce((n, s) => n + s.count, 0)
-      const overdue = snap.stats.reduce((n, s) => n + s.overdue, 0)
+      const open = sum(s => s.count, isOpen)
+      const overdue = sum(s => s.overdue)
       const blocked = snap.queue.filter(t => t.blocked).length
-      const tracked = snap.stats.reduce((n, s) => n + s.trackedSeconds, 0)
-      const remaining = snap.stats
-        .filter(s => s.status !== 'done' && s.status !== 'cancelled')
-        .reduce((n, s) => n + s.estimateSeconds, 0)
+      const left = sum(s => s.estimateSeconds, isOpen)
+      const tracked = sum(s => s.trackedSeconds)
+      const pct = total ? Math.round((done / total) * 100) : 0
+
+      const days = snap.burndown.remaining
+      const shown = Math.min(days.length, inner)
+      const start = snap.burndown.from
+        ? new Date(Date.parse(snap.burndown.from) + (days.length - shown) * 86_400_000).toISOString().slice(0, 10)
+        : ''
+      const peak = Math.max(0, ...days.slice(-shown))
+      const chart =
+        days.length === 0 ? (
+          dim('No history yet.')
+        ) : Raster ? (
+          (() => {
+            const drawn = lib.barCells(days, inner, 4, 0xd97757, 0x4eba65)
+            return <Raster key="burndown" columns={drawn.columns} rows={4} cells={drawn.cells} />
+          })()
+        ) : (
+          <Text color="suggestion">{lib.sparkline(days, inner)}</Text>
+        )
+
       const row = (a: string, b: string, c: string, d: string) =>
-        `${a.padEnd(10)}${b.padStart(6)}  ${c.padStart(10)}  ${d.padStart(12)}`
+        `${a.padEnd(10)}${b.padStart(6)}  ${c.padStart(9)}  ${d.padStart(10)}`
+
       return (
         <Box flexDirection="column">
-          {heading(`${snap.project} · ${done}/${total} done`)}
-          <Text>{lib.bar(total ? done / total : 0, Math.min(30, width - 4))}</Text>
-          {dim(
-            `${open} open · ${remaining ? `${lib.formatDuration(remaining)} estimated left` : 'nothing estimated'} · ${lib.formatDuration(tracked)} tracked`,
+          {card(
+            'summary',
+            snap.project,
+            <Box flexDirection="column">
+              {meter(total ? done / total : 0, inner, 'success')}
+              <Text wrap="wrap">
+                <Text bold>{done}</Text>
+                <Text dimColor> done · </Text>
+                <Text bold>{open}</Text>
+                <Text dimColor> open · </Text>
+                <Text bold>{left ? lib.formatDuration(left) : '—'}</Text>
+                <Text dimColor> estimated left · </Text>
+                <Text bold>{lib.formatDuration(tracked)}</Text>
+                <Text dimColor> tracked</Text>
+              </Text>
+              {overdue > 0 || blocked > 0 ? (
+                <Text>
+                  {overdue > 0 ? chip(`${overdue} overdue`, 'error') : null}
+                  {overdue > 0 && blocked > 0 ? ' ' : null}
+                  {blocked > 0 ? chip(`${blocked} blocked`, 'warning') : null}
+                </Text>
+              ) : null}
+            </Box>,
+            { right: `${pct}% done`, color: 'success' },
           )}
-          {overdue > 0 && <Text color="error">{overdue} overdue</Text>}
-          {blocked > 0 && <Text color="warning">{blocked} blocked in the working set</Text>}
-          {gap()}
-          <Text dimColor>{row('status', 'tasks', 'estimate', 'tracked')}</Text>
-          {snap.stats.map(s => (
-            <Text key={`st-${s.status}`}>
-              {row(
-                s.status,
-                String(s.count),
-                lib.formatDuration(s.estimateSeconds),
-                lib.formatDuration(s.trackedSeconds),
-              )}
-            </Text>
-          ))}
-          {snap.recentDone.length > 0 && gap()}
-          {snap.recentDone.length > 0 && heading('Recently done')}
-          {snap.recentDone.map(t => (
-            <Text key={`done-${t.shortId}`} wrap="truncate-end">
-              #{t.shortId} {t.title}
-            </Text>
-          ))}
+          {card(
+            'burndown-card',
+            'Burndown',
+            <Box flexDirection="column">
+              {chart}
+              {days.length > 0 ? (
+                <Box flexDirection="row" justifyContent="space-between">
+                  {dim(start)}
+                  {dim(`peak ${peak}`)}
+                  {dim('today')}
+                </Box>
+              ) : null}
+            </Box>,
+            { right: `${days[days.length - 1] ?? 0} open now` },
+          )}
+          {card(
+            'statuses',
+            'By status',
+            <Box flexDirection="column">
+              <Text dimColor>{row('status', 'tasks', 'estimate', 'tracked')}</Text>
+              {snap.stats.map(s => (
+                <Text key={`st-${s.status}`}>
+                  {row(s.status, String(s.count), lib.formatDuration(s.estimateSeconds), lib.formatDuration(s.trackedSeconds))}
+                </Text>
+              ))}
+            </Box>,
+          )}
+          {snap.recentDone.length > 0
+            ? card(
+                'recent',
+                'Recently done',
+                <Box flexDirection="column">
+                  {snap.recentDone.map(t => (
+                    <Text key={`done-${t.shortId}`} wrap="truncate-end">
+                      <Text color="success">✔</Text> <Text dimColor>#{t.shortId}</Text> {t.title}
+                    </Text>
+                  ))}
+                </Box>,
+              )
+            : null}
         </Box>
       )
     }
@@ -524,30 +668,50 @@ export const register: Register = (on, options) => {
       const related = snap.active?.related ?? []
       return (
         <Box flexDirection="column">
-          {heading('Standing rulings')}
-          {snap.project === null && noProject}
-          {snap.project !== null && snap.rulings.length === 0 && dim('None for this project.')}
-          {snap.rulings.map((r, i) => (
-            <Box key={`rule-${i}`} flexDirection="column" marginBottom={1}>
-              <Text bold wrap="wrap">
-                {r.title}
-              </Text>
-              <Text dimColor wrap="wrap">
-                {r.preview}
-              </Text>
-            </Box>
-          ))}
-          {snap.active && heading(`Related to #${snap.active.shortId}`)}
-          {snap.active && related.length === 0 && dim('No memory hits.')}
-          {related.map((h, i) => (
-            <Box key={`hit-${i}`} flexDirection="column" marginBottom={1}>
-              <Text bold wrap="wrap">
-                {h.title}
-              </Text>
-              {dim(h.source)}
-              <Text wrap="wrap">{h.snippet}</Text>
-            </Box>
-          ))}
+          {snap.project === null
+            ? noProject
+            : card(
+                'rulings',
+                'Standing rulings',
+                snap.rulings.length === 0 ? (
+                  dim('None for this project.')
+                ) : (
+                  <Box flexDirection="column" gap={1}>
+                    {snap.rulings.map((r, i) => (
+                      <Box key={`rule-${i}`} flexDirection="column">
+                        <Text bold wrap="wrap">
+                          <Text color="suggestion">▌</Text> {r.title}
+                        </Text>
+                        <Text dimColor wrap="wrap">
+                          {r.preview}
+                        </Text>
+                      </Box>
+                    ))}
+                  </Box>
+                ),
+                { right: String(snap.rulings.length) },
+              )}
+          {snap.active
+            ? card(
+                'related',
+                `Related to #${snap.active.shortId}`,
+                related.length === 0 ? (
+                  dim('No memory hits.')
+                ) : (
+                  <Box flexDirection="column" gap={1}>
+                    {related.map((hit, i) => (
+                      <Box key={`hit-${i}`} flexDirection="column">
+                        <Text bold wrap="wrap">
+                          <Text color="suggestion">▌</Text> {hit.title}
+                        </Text>
+                        {dim(hit.source)}
+                        <Text wrap="wrap">{hit.snippet}</Text>
+                      </Box>
+                    ))}
+                  </Box>
+                ),
+              )
+            : null}
         </Box>
       )
     }
@@ -563,4 +727,3 @@ export const register: Register = (on, options) => {
     )
   })
 }
-
