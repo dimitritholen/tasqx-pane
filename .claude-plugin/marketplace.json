@@ -1,0 +1,14 @@
+{
+  "name": "tasqx-pane",
+  "owner": {
+    "name": "Dimitri Tholen"
+  },
+  "description": "tasqx-pane: a Claude Code mod that shows your tasqx work in a pane.",
+  "plugins": [
+    {
+      "name": "tasqx-pane",
+      "source": "./",
+      "description": "A Claude Code pane with your active tasqx task, the project's queue, its numbers and its standing rulings."
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "name": "tasqx-pane",
+  "version": "0.1.0",
+  "description": "A pane with your active tasqx task, the project's queue, its numbers and its standing rulings, in every repo that has a tasqx project.",
+  "author": { "name": "Dimitri Tholen" },
+  "homepage": "https://github.com/dimitritholen/tasqx-pane",
+  "license": "MIT",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "tasqxPath": {
+      "type": "string",
+      "title": "tasqx binary",
+      "description": "The tasqx executable to run. A bare name is looked up on PATH; give an absolute path when Claude Code starts without your shell's PATH (the desktop app).",
+      "default": "tasqx"
+    },
+    "project": {
+      "type": "string",
+      "title": "Project override",
+      "description": "The tasqx project to show. Empty: the project named after the repository's folder.",
+      "default": ""
+    },
+    "autoOpen": {
+      "type": "string",
+      "title": "Open on start",
+      "description": "Open the pane when a session starts in a repo that has a tasqx project.",
+      "options": ["on", "off"],
+      "default": "on"
+    },
+    "statusLine": {
+      "type": "string",
+      "title": "Status line",
+      "description": "Show the active task under the prompt, also while the pane is closed.",
+      "options": ["on", "off"],
+      "default": "on"
+    },
+    "refreshSeconds": {
+      "type": "number",
+      "title": "Refresh every (seconds)",
+      "description": "How often the pane reads tasqx again. It also refreshes after every tasqx tool call.",
+      "default": 15
+    }
+  }
+}
