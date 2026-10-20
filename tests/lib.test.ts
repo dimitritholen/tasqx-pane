@@ -37,6 +37,14 @@ describe('project mapping', () => {
     expect(lib.pickProject(projects, 'tasqx', 'gone')).toEqual({ project: 'tasqx', source: 'repo' })
   })
 
+  test('the project picked for the folder wins over the override and the name', () => {
+    expect(lib.pickProject(projects, 'tasqx', 'blinqx', 'keel')).toEqual({ project: 'Keel', source: 'folder' })
+  })
+
+  test('a picked project that is gone falls back', () => {
+    expect(lib.pickProject(projects, 'tasqx', '', 'gone')).toEqual({ project: 'tasqx', source: 'repo' })
+  })
+
   test('a folder with no project shows none, never the default', () => {
     expect(lib.pickProject(projects, 'scratch', '')).toEqual({ project: null, source: 'none' })
   })

@@ -50,7 +50,7 @@ const ANSWERS: Array<[string, unknown]> = [
   ['stop', { status: 'pending' }],
 ]
 
-function fakeWorld(on: On, calls: string[], repoRoot = '/home/me/demo', filled: string[] = []) {
+function fakeWorld(on: On, calls: string[], repoRoot = '/home/me/demo', filled: string[] = [], store: Record<string, unknown> = {}) {
   on('prompt.fill', ($, e) => {
     filled.push(e.text)
     return { isFilled: true }
@@ -68,6 +68,11 @@ function fakeWorld(on: On, calls: string[], repoRoot = '/home/me/demo', filled: 
         isStderrTruncated: false,
       },
     }
+  })
+  on('store.get', ($, e) => ({ value: store[e.key] }))
+  on('store.set', ($, e) => {
+    store[e.key] = e.value
+    return { value: undefined }
   })
   on('session.repo', () => ({ value: { root: repoRoot, remote: null, internal: false, name: null } }))
   on('ui.panes', () => ({ value: [] }))
@@ -141,8 +146,31 @@ test('a folder with no project says so instead of showing another project', asyn
   await $.command.run(typed('queue'))
 
   const ui = await $.ui.mount({ plugin: 'tasqx-pane', surface: 'terminal', component: 'Pane', requestId: 'tasqx', props: PANE_PROPS })
-  expect(await ui.find({ type: 'Text', text: /no project "scratch"/ })).toBeDefined()
+  expect((await ui.find({ key: 'project-pick' }))?.props.label).toBe('no project "scratch"')
   expect(await ui.find({ type: 'Text', text: /tasqx init scratch/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('picking a project in a folder without one shows it and remembers it', async ($, on) => {
+  const store: Record<string, unknown> = {}
+  fakeWorld(on, [], '/home/me/scratch', [], store)
+  mock.clock(on, { now: NOW })
+  await $.command.run(typed('queue'))
+
+  const ui = await $.ui.mount({ plugin: 'tasqx-pane', surface: 'terminal', component: 'Pane', requestId: 'tasqx', props: PANE_PROPS })
+  await ui.select({ key: 'project-pick', value: 'demo' })
+  expect(store).toEqual({ 'folder:/home/me/scratch': 'demo' })
+  expect(await ui.find({ type: 'Text', text: /Next thing/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a folder opens on the project it remembers', async ($, on) => {
+  fakeWorld(on, [], '/home/me/scratch', [], { 'folder:/home/me/scratch': 'demo' })
+  mock.clock(on, { now: NOW })
+  await $.command.run(typed('queue'))
+
+  const ui = await $.ui.mount({ plugin: 'tasqx-pane', surface: 'terminal', component: 'Pane', requestId: 'tasqx', props: PANE_PROPS })
+  expect(await ui.find({ type: 'Text', text: /Next thing/ })).toBeDefined()
   await ui.unmount()
 })
 

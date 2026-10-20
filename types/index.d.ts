@@ -52,11 +52,13 @@ export type Ruling = { title: string; preview: string }
 
 export type Burndown = { from: string | null; remaining: number[] }
 
-export type ProjectSource = 'repo' | 'config' | 'none'
+export type ProjectSource = 'folder' | 'config' | 'repo' | 'none'
 
 export type Snapshot = {
   project: string | null
   projectSource: ProjectSource
+  /** every live project, for the picker */
+  projects: string[]
   dirName: string | null
   active: ActiveTask | null
   otherActive: TaskRef[]

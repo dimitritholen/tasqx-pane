@@ -67,9 +67,22 @@ async function resolveProject($: Engine) {
     const listed = await tasqx($, ['projects'])
     cache.projects = (listed.projects ?? []).filter((p: any) => !p.archived).map((p: any) => String(p.name))
   }
-  const repo = await $.session.repo()
-  const dirName = lib.basename(repo?.root ?? (await $.session.root()))
-  return { ...lib.pickProject(cache.projects ?? [], dirName, cfg.override), dirName }
+  const root = await folder($)
+  const dirName = lib.basename(root)
+  const chosen = String((await $.store.get(folderKey(root))) ?? '')
+  return { ...lib.pickProject(cache.projects ?? [], dirName, cfg.override, chosen), dirName, projects: cache.projects ?? [] }
+}
+
+async function folder($: Engine) {
+  return (await $.session.repo())?.root ?? (await $.session.root())
+}
+
+const folderKey = (root: string) => `folder:${root}`
+
+/** Remembers `project` for this folder, then shows it. */
+async function chooseProject($: Engine, project: string) {
+  await $.store.set(folderKey(await folder($)), project)
+  await openPane($)
 }
 
 async function load($: Engine, isFull: boolean): Promise<Snapshot> {
@@ -77,6 +90,7 @@ async function load($: Engine, isFull: boolean): Promise<Snapshot> {
   const base: Snapshot = {
     project: null,
     projectSource: 'none',
+    projects: [],
     dirName: null,
     active: null,
     otherActive: [],
@@ -91,8 +105,8 @@ async function load($: Engine, isFull: boolean): Promise<Snapshot> {
     error: null,
   }
   try {
-    const { project, source, dirName } = await resolveProject($)
-    Object.assign(base, { project, projectSource: source, dirName })
+    const { project, source, dirName, projects } = await resolveProject($)
+    Object.assign(base, { project, projectSource: source, dirName, projects })
 
     // only this folder's project: another project's active task is not this repo's work
     const actives: any[] = project
@@ -288,7 +302,7 @@ export const register: Register = (on, options) => {
 
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text, Button, Markdown } = $.ui.resolve(e)
+    const { Box, Text, Button, Select, Markdown } = $.ui.resolve(e)
     const Raster = e.surface === 'terminal' ? $.ui.resolve(e).Raster : null
     const snap = await read($, snapshot)
     const current = await read($, tab)
@@ -356,10 +370,22 @@ export const register: Register = (on, options) => {
       <Box flexDirection="column">
         {tabs}
         <Box flexDirection="row" justifyContent="space-between" gap={1} paddingX={1}>
-          <Text bold wrap="truncate-end">
-            {snap.project ?? `no project "${snap.dirName ?? '?'}"`}
-            {snap.projectSource === 'config' ? <Text dimColor> (from /config)</Text> : null}
-          </Text>
+          {snap.projects.length > 0 ? (
+            <Select
+              key="project-pick"
+              label={snap.project ? undefined : `no project "${snap.dirName ?? '?'}"`}
+              options={[
+                // a placeholder, so the picker does not look like the first project is chosen
+                ...(snap.project ? [] : [{ value: '', label: 'pick a project' }]),
+                ...snap.projects.map(p => ({ value: p })),
+              ]}
+              value={snap.project ?? ''}
+              onSelect={p => void (p && chooseProject($, p))}
+            />
+          ) : (
+            <Text bold wrap="truncate-end">{`no project "${snap.dirName ?? '?'}"`}</Text>
+          )}
+          {snap.projectSource === 'config' ? <Text dimColor>(from /config)</Text> : null}
           <Text dimColor>{working ? `${working}…` : `updated ${updated}`}</Text>
         </Box>
       </Box>
@@ -390,7 +416,7 @@ export const register: Register = (on, options) => {
             'no-project',
             'No project for this folder',
             dim(
-              `Create one with tasqx init ${snap.dirName ?? '<name>'}, or pick one under /config → tasqx-pane → Project override.`,
+              `Pick one with the project picker above (this folder remembers it), or create one with tasqx init ${snap.dirName ?? '<name>'}.`,
             ),
             { color: 'warning' },
           )

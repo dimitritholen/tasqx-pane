@@ -2,7 +2,7 @@
 
 A [Claude Code mod](https://code.claude.com/docs/en/plugins/mods/overview) that docks a **tasqx** pane beside the transcript, so you and Claude can see the work that is going on while the session runs.
 
-It works in every repository whose folder name matches a [tasqx](https://github.com/dimitritholen/tasqx) project, and reads your store through the `tasqx` CLI.
+It works in every repository whose folder name matches a [tasqx](https://github.com/dimitritholen/tasqx) project, or that you point at one with the project picker, and reads your store through the `tasqx` CLI.
 
 ```text
  [ Task ] [ Queue ] [ Project ] [ Memory ] [ ↻ ]
@@ -97,7 +97,7 @@ Under `/config` → **tasqx-pane**:
 | Setting | Default | What it does |
 | --- | --- | --- |
 | tasqx binary | `tasqx` | The executable to run. Give an absolute path (`~/.cargo/bin/tasqx`, `/opt/homebrew/bin/tasqx`) when Claude Code starts without your shell's `PATH`, as the desktop app can. |
-| Project override | *(empty)* | Show this project instead of the one named after the repo folder. |
+| Project override | *(empty)* | Show this project in every folder that has no project picked in the pane. |
 | Open on start | `on` | Open the pane when a session starts in a repo that has a project. |
 | Status line | `on` | Show the active task under the prompt. |
 | Refresh every (seconds) | `15` | How often it reads tasqx (at least 5). |
@@ -106,7 +106,9 @@ Under `/config` → **tasqx-pane**:
 
 ## How it finds the project
 
-It takes the name of the git repository's folder (the main worktree's for a linked worktree, or the session's folder outside git) and looks for a live tasqx project with that name, ignoring case. If there is none, the pane says so instead of showing another project. Create one with `tasqx init <folder name>`, or set **Project override**.
+It takes the name of the git repository's folder (the main worktree's for a linked worktree, or the session's folder outside git) and looks for a live tasqx project with that name, ignoring case. If there is none, the pane says so instead of showing another project.
+
+The project name at the top of the pane is a picker (focus it, arrows, Enter). The project you pick is remembered for that folder, across sessions, and wins over the folder name and **Project override**. A picked project that is archived or removed falls back to the folder name. Or create one with `tasqx init <folder name>`.
 
 ## Trust
 

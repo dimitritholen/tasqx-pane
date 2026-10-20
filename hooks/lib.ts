@@ -68,15 +68,21 @@ export function basename(path: string): string {
 }
 
 /**
- * Which project to show: the override when it names a live project, else the
- * project named after the repository folder (case-insensitive), else none.
+ * Which project to show: the one picked for this folder, else the override,
+ * each only while it names a live project, else the project named after the
+ * repository folder (case-insensitive), else none.
  */
 export function pickProject(
   projects: readonly string[],
   dirName: string | null,
   override: string,
+  chosen = '',
 ): { project: string | null; source: ProjectSource } {
   const find = (name: string) => projects.find(p => p.toLowerCase() === name.toLowerCase())
+  if (chosen) {
+    const hit = find(chosen)
+    if (hit) return { project: hit, source: 'folder' }
+  }
   const wanted = override.trim()
   if (wanted) {
     const hit = find(wanted)
