@@ -108,7 +108,7 @@ Under `/config` → **tasqx-pane**:
 
 It takes the name of the git repository's folder (the main worktree's for a linked worktree, or the session's folder outside git) and looks for a live tasqx project with that name, ignoring case. If there is none, the pane says so instead of showing another project.
 
-In a folder without a project the pane opens a project picker: type a few letters to narrow the list (fuzzy: `tqp` finds `tasqx-pane`), press Enter for the top match or a project's button. In a folder with a project, `⇄` next to its name (`w`) opens the same picker. The project you pick is remembered for that folder, across sessions, and wins over the folder name and **Project override**. A picked project that is archived or removed falls back to the folder name. Or create one with `tasqx init <folder name>`.
+The project name at the top of the pane is a picker: focus it, scroll the projects with the arrow keys or type to filter them, and press Enter to pick. The mouse wheel does not scroll it. The project you pick is remembered for that folder, across sessions, and wins over the folder name and **Project override**. A picked project that is archived or removed falls back to the folder name. Or create one with `tasqx init <folder name>`.
 
 ## Trust
 
