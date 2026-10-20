@@ -169,3 +169,40 @@ test('the tag handoff names the filter and the ready tasks', () => {
     'Work through the tasqx tasks in `project:demo @working +mod`, most urgent first (now #9, #12). Read each brief first and finish one before you start the next.',
   )
 })
+
+describe('enforcing rulings', () => {
+  test('the task id comes from the first of the three prompt forms', () => {
+    expect(lib.taskIdIn('Run `tasqx show 2342 --card` first')).toBe(2342)
+    expect(lib.taskIdIn('work on branch task/77-fix-it from main')).toBe(77)
+    expect(lib.taskIdIn('You are the builder for tasqx task #9 in the repo')).toBe(9)
+    expect(lib.taskIdIn('tasqx task #5, then tasqx show 6')).toBe(5)
+    expect(lib.taskIdIn('fix issue #12 and see task 40')).toBe(null)
+    expect(lib.taskIdIn('task/abc-1 and tasqx shows 3 and mytasqx show 4')).toBe(null)
+    expect(lib.taskIdIn('')).toBe(null)
+  })
+
+  test('only rulings of this project or none, changed after the start, make the section', () => {
+    const start = Date.parse('2026-10-20T10:00:00Z')
+    const doc = (title: string, project: string | null, modified: string, body = `Ruling: ${title}.\nwhy`) => ({
+      title,
+      project,
+      standing: true,
+      created: '2026-10-01T00:00:00Z',
+      modified,
+      body_preview: body,
+    })
+    const docs = [
+      doc('old', 'demo', '2026-10-20T09:59:00Z'),
+      doc('mine', 'Demo', '2026-10-20T10:05:00Z'),
+      doc('global', null, '2026-10-20T10:06:00Z', '\n  Ruling: everywhere.  \nmore'),
+      doc('theirs', 'other', '2026-10-20T10:07:00Z'),
+    ]
+    expect(lib.liveRulingsText(docs, 'demo', start)).toBe(
+      'Standing rulings added during this session — follow them:\n- mine: Ruling: mine.\n- global: Ruling: everywhere.',
+    )
+    expect(lib.liveRulingsText(docs, null, start)).toBe(
+      'Standing rulings added during this session — follow them:\n- global: Ruling: everywhere.',
+    )
+    expect(lib.liveRulingsText(docs, 'demo', Date.parse('2026-10-21T00:00:00Z'))).toBe(null)
+  })
+})

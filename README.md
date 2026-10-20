@@ -58,6 +58,13 @@ It does not complete tasks. Completing one goes through your agent or `tasqx don
 
 Every 15 seconds (configurable), right after any `mcp__tasqx__*` tool call or Bash command that runs `tasqx`, and when you press Refresh (`r`). While the pane is closed it reads only the active task, for the status line.
 
+## Keeping Claude to the rules
+
+Two things the pane does beside the session, each switchable in `/config`:
+
+- **Start timer on spawn.** When Claude launches a subagent whose prompt names a tasqx task as `tasqx show <id>`, `task/<id>-` (a branch) or `tasqx task #<id>`, the first of those wins and the pane runs `tasqx start <id> --keep`, once. When that started the timer it shows a toast: `tasqx: timer started on #2342 "…"`. Other running timers keep running, and a task already active is left alone, without a toast. If tasqx refuses (a done task, an unknown id) or is missing, a toast says why and the subagent starts anyway; the spawn is never refused or changed.
+- **Live rulings.** tasqx hands Claude the standing rulings once, when the session starts. A ruling recorded later (`tasqx_add_memory` with `standing`, or `tasqx memory add --standing`) would otherwise wait for the next session. The pane adds a section to Claude's system prompt, *Standing rulings added during this session — follow them:*, listing each standing ruling of this project or of no project that was created or changed after the session started, with its title and first line. It reads the rulings at most every 30 seconds, and adds nothing when there are none.
+
 ## Install
 
 You need Claude Code 2.1.287 or later, and `tasqx` installed.
@@ -104,6 +111,8 @@ Under `/config` → **tasqx-pane**:
 | Refresh every (seconds) | `15` | How often it reads tasqx (at least 5). |
 | Hand to Claude prompt | `Work on tasqx task #{id}: {title}. Read its brief first.` | What Hand to Claude puts in the prompt box. `{id}`, `{title}` and `{project}` are filled in. |
 | Tell Claude | `on` | Leave Claude a note when you start or stop a timer or mark a check in the pane. |
+| Start timer on spawn | `on` | Start the timer of the task a subagent is launched on. |
+| Live rulings | `on` | Add standing rulings recorded during the session to Claude's system prompt. |
 
 ## How it finds the project
 
@@ -113,7 +122,7 @@ The project name at the top of the pane is a picker: focus it, scroll the projec
 
 ## Trust
 
-A mod runs with your permissions and is not sandboxed. This one runs only the `tasqx` binary you configure: `list`, `brief`, `report`, `projects`, `chart burndown` and `memory list` to read, and `start`, `stop` and `check set` when you press a button. Besides that it fills your prompt box when you press Hand to Claude, and leaves Claude the notes described above. `claude plugin validate` on a clone lists every call it makes.
+A mod runs with your permissions and is not sandboxed. This one runs only the `tasqx` binary you configure: `list`, `brief`, `report`, `projects`, `chart burndown` and `memory list` to read, `start`, `stop` and `check set` when you press a button, and `start --keep` when a subagent is launched on a task that is not active. Besides that it fills your prompt box when you press Hand to Claude, and leaves Claude the notes described above. `claude plugin validate` on a clone lists every call it makes.
 
 ## Develop
 
@@ -123,7 +132,7 @@ claude plugin test .
 claude --plugin-dir .      # a session with your working copy loaded
 ```
 
-`hooks/lib.ts` holds the parsing and formatting and has no `$`, so `tests/lib.test.ts` covers it without a session. `tests/pane.test.tsx` draws the pane over a fake `tasqx` on the terminal and desktop surfaces.
+`hooks/lib.ts` holds the parsing and formatting and has no `$`, so `tests/lib.test.ts` covers it without a session. `tests/pane.test.tsx` draws the pane over a fake `tasqx` on the terminal and desktop surfaces, and `tests/enforce.test.ts` covers the spawn and prompt hooks.
 
 ## License
 

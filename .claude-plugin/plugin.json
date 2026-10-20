@@ -1,6 +1,6 @@
 {
   "name": "tasqx-pane",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "A pane with your active tasqx task, the project's queue, its numbers and its standing rulings, in every repo that has a tasqx project.",
   "author": {
     "name": "Dimitri Tholen"
@@ -57,6 +57,26 @@
       "type": "string",
       "title": "Tell Claude",
       "description": "When you start or stop a timer or mark a check in the pane, add a note Claude reads on its next turn. It starts no turn.",
+      "options": [
+        "on",
+        "off"
+      ],
+      "default": "on"
+    },
+    "autoStartOnSpawn": {
+      "type": "string",
+      "title": "Start timer on spawn",
+      "description": "When Claude launches a subagent whose prompt names a tasqx task (`tasqx show <id>`, `task/<id>-`, `tasqx task #<id>`), start that task's timer unless it runs already.",
+      "options": [
+        "on",
+        "off"
+      ],
+      "default": "on"
+    },
+    "liveRulings": {
+      "type": "string",
+      "title": "Live rulings",
+      "description": "Add standing rulings recorded during this session (this project's and unscoped ones) to Claude's system prompt, so they hold before the next session.",
       "options": [
         "on",
         "off"

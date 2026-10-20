@@ -15,6 +15,8 @@ const snapshot = atom({ plugin: 'tasqx-pane', key: 'snapshot' } as const, null)
 const tab = atom({ plugin: 'tasqx-pane', key: 'tab' } as const, 'task')
 const busy = atom({ plugin: 'tasqx-pane', key: 'busy' } as const, null)
 const tagFilter = atom({ plugin: 'tasqx-pane', key: 'tag' } as const, null)
+// in $.state, not the module, so a hot reload (which runs session.start again) keeps it
+const sessionStart = atom({ plugin: 'tasqx-pane', key: 'sessionStart' } as const, null)
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err))
 const projectFilter = (p: string) => `project:${/\s/.test(p) ? `"${p}"` : p}`
@@ -30,6 +32,8 @@ const cfg = {
   periodMs: 15_000,
   tellClaude: true,
   handoff: 'Work on tasqx task #{id}: {title}. Read its brief first.',
+  autoStart: true,
+  liveRulings: true,
 }
 
 // What the module remembers between refreshes; a reload starts it over.
@@ -41,6 +45,8 @@ const cache = {
   running: null as Promise<void> | null,
   again: false,
   full: false,
+  standing: null as any[] | null,
+  standingAt: 0,
 }
 
 /** One `tasqx <args> --json` call; rejects with tasqx's own error message. */
@@ -248,6 +254,34 @@ async function handoffTag($: Engine, project: string, tag: string, ids: number[]
   )
 }
 
+/**
+ * Starts the task a builder is spawned on: one call, which leaves a running
+ * timer alone (`already_running`) and refuses a done task. Never throws.
+ */
+async function autoStart($: Engine, id: number) {
+  try {
+    const started = await tasqx($, ['start', String(id), '--keep'])
+    if (started.already_running) return
+    $.ui.toast(`tasqx: timer started on #${id} ${quote(String(started.title ?? ''))}`)
+    $.clock.after(150, () => void refresh($, true))
+  } catch (err) {
+    $.ui.toast(`tasqx: could not start #${id}: ${message(err)}`)
+  }
+}
+
+/** The prompt section of rulings added since the session started; the listing is reused for 30 s. */
+async function liveRulings($: Engine): Promise<string | null> {
+  const since = await read($, sessionStart)
+  if (since === null) return null
+  const now = await $.clock.now()
+  if (!cache.standing || now - cache.standingAt > 30_000) {
+    cache.standing = (await tasqx($, ['memory', 'list', '--standing'])).docs ?? []
+    cache.standingAt = now
+  }
+  const { project } = await resolveProject($)
+  return lib.liveRulingsText(cache.standing ?? [], project, since)
+}
+
 const quote = (title: string) => `"${title.length > 80 ? `${title.slice(0, 77)}…` : title}"`
 
 /** Opens (or retitles) the pane, then reads everything for it. */
@@ -272,6 +306,8 @@ export const register: Register = (on, options) => {
   cfg.periodMs = Math.max(5, Number(options.refreshSeconds) || 15) * 1000
   cfg.tellClaude = options.tellClaude !== 'off'
   cfg.handoff = String(options.handoffPrompt || cfg.handoff)
+  cfg.autoStart = options.autoStartOnSpawn !== 'off'
+  cfg.liveRulings = options.liveRulings !== 'off'
 
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -280,6 +316,8 @@ export const register: Register = (on, options) => {
       argumentHint: '[task|queue|project|memory|refresh|close]',
     })
     const started = await next(e)
+    const now = await $.clock.now()
+    await update($, sessionStart, at => at ?? now)
     $.clock.every(cfg.periodMs, () => void refresh($))
     $.clock.after(10, async () => {
       let project: string | null = null
@@ -317,6 +355,27 @@ export const register: Register = (on, options) => {
     const result = await next(e)
     if (lib.touchesTasqx(String(e.tool), e)) $.clock.after(150, () => void refresh($, true))
     return result
+  }).catch(($, e, next) => next(e))
+
+  // A builder launched on a task gets its timer running, whatever the builder forgets.
+  on('agent.spawn', async ($, e, next) => {
+    const id = cfg.autoStart ? lib.taskIdIn(e.prompt) : null
+    if (id !== null) await autoStart($, id)
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
+  // Rulings recorded mid-session reach the model on its next request.
+  on('prompt.compose', async ($, e, next) => {
+    const composed = await next(e)
+    if (!cfg.liveRulings) return composed
+    let text: string | null = null
+    try {
+      text = await liveRulings($)
+    } catch {
+      // tasqx unreachable: compose as if there were none
+    }
+    if (!text) return composed
+    return { sections: [...composed.sections, { id: 'tasqx-pane:live-rulings', text, scope: 'session' as const }] }
   }).catch(($, e, next) => next(e))
 
 

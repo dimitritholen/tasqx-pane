@@ -274,3 +274,31 @@ export function tagHandoffText(filter: string, ids: number[]): string {
   const now = ids.length > 0 ? ` (now ${ids.map(id => `#${id}`).join(', ')})` : ''
   return `Work through the tasqx tasks in \`${filter}\`, most urgent first${now}. Read each brief first and finish one before you start the next.`
 }
+
+/**
+ * The tasqx task a subagent's prompt is about: the first of `tasqx show <id>`,
+ * `task/<id>-` (a branch) or `tasqx task #<id>`; null when it names none.
+ */
+export function taskIdIn(prompt: string): number | null {
+  const m = /\btasqx show (\d+)\b|\btask\/(\d+)-|\btasqx task #(\d+)\b/i.exec(prompt)
+  return m ? Number(m[1] ?? m[2] ?? m[3]) : null
+}
+
+/**
+ * The prompt section for standing rulings of `project` (or unscoped) created or
+ * changed after `sinceMs`: title plus first body line each; null when none.
+ */
+export function liveRulingsText(docs: readonly Json[], project: string | null, sinceMs: number): string | null {
+  const fresh = docs.filter(
+    d =>
+      d.standing !== false &&
+      (d.project == null || (project !== null && String(d.project).toLowerCase() === project.toLowerCase())) &&
+      Date.parse(d.modified ?? d.created) > sinceMs,
+  )
+  if (fresh.length === 0) return null
+  const lines = fresh.map(d => {
+    const first = String(d.body_preview ?? '').split('\n').find(l => l.trim())?.trim()
+    return `- ${d.title}${first ? `: ${first}` : ''}`
+  })
+  return ['Standing rulings added during this session — follow them:', ...lines].join('\n')
+}
