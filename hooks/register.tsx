@@ -14,9 +14,12 @@ const TAB_LABEL: Record<Tab, string> = { task: 'Task', queue: 'Queue', project: 
 const snapshot = atom({ plugin: 'tasqx-pane', key: 'snapshot' } as const, null)
 const tab = atom({ plugin: 'tasqx-pane', key: 'tab' } as const, 'task')
 const busy = atom({ plugin: 'tasqx-pane', key: 'busy' } as const, null)
+const tagFilter = atom({ plugin: 'tasqx-pane', key: 'tag' } as const, null)
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err))
 const projectFilter = (p: string) => `project:${/\s/.test(p) ? `"${p}"` : p}`
+/** The queue's filter: the project's working set, under `tag` when one is picked. */
+const queueFilter = (p: string, tag: string | null) => `${projectFilter(p)} @working${tag ? ` +${tag}` : ''}`
 
 // Set from the plugin's options when the module registers.
 const cfg = {
@@ -82,6 +85,8 @@ const folderKey = (root: string) => `folder:${root}`
 /** Remembers `project` for this folder, then shows it. */
 async function chooseProject($: Engine, project: string) {
   await $.store.set(folderKey(await folder($)), project)
+  // another project has other tags
+  await update($, tagFilter, () => null)
   await openPane($)
 }
 
@@ -96,6 +101,8 @@ async function load($: Engine, isFull: boolean): Promise<Snapshot> {
     otherActive: [],
     queue: [],
     queueTotal: 0,
+    tags: [],
+    tag: await read($, tagFilter),
     recentDone: [],
     stats: [],
     rulings: [],
@@ -129,8 +136,9 @@ async function load($: Engine, isFull: boolean): Promise<Snapshot> {
 
     if (isFull && project) {
       const scope = projectFilter(project)
-      const [queue, done, report, rulings, burndown] = await Promise.all([
-        tasqx($, ['list', scope, '@working', '--limit', '15']),
+      const [queue, tagged, done, report, rulings, burndown] = await Promise.all([
+        tasqx($, ['list', scope, '@working', ...(base.tag ? [`+${base.tag}`] : []), '--limit', '15']),
+        tasqx($, ['list', scope, '@working', '--fields', 'tags', '--limit', '10000']),
         tasqx($, ['list', scope, 'status:done', '--sort', '-modified', '--limit', '5']),
         tasqx($, ['report', 'status', scope]),
         tasqx($, ['memory', 'list', '--project', project, '--standing', '--limit', '10']),
@@ -140,6 +148,7 @@ async function load($: Engine, isFull: boolean): Promise<Snapshot> {
       base.burndown = { from: series[0]?.date ?? null, remaining: series.map(d => Number(d.remaining) || 0) }
       base.queue = (queue.tasks ?? []).filter((t: any) => t.status !== 'active').map(lib.toQueueRow)
       base.queueTotal = queue.total ?? base.queue.length
+      base.tags = lib.collectTags(tagged.tasks ?? [])
       base.recentDone = (done.tasks ?? []).map(lib.toTaskRef)
       base.stats = lib.toStats(report)
       base.rulings = (rulings.docs ?? []).map((d: any) => ({
@@ -225,6 +234,16 @@ async function handoff($: Engine, task: { shortId: number; title: string; projec
   $.ui.toast(
     filled.isFilled
       ? `#${task.shortId} is in the prompt: Esc back to it, then Enter to send.`
+      : `tasqx: could not fill the prompt (${filled.refusal ?? 'no prompt box'}).`,
+  )
+}
+
+/** Puts every open task under `tag` in the prompt box, unsent; starts no timer, Claude starts each in turn. */
+async function handoffTag($: Engine, project: string, tag: string, ids: number[]) {
+  const filled = await $.prompt.fill({ text: lib.tagHandoffText(queueFilter(project, tag), ids) })
+  $.ui.toast(
+    filled.isFilled
+      ? `+${tag} is in the prompt: Esc back to it, then Enter to send.`
       : `tasqx: could not fill the prompt (${filled.refusal ?? 'no prompt box'}).`,
   )
 }
@@ -625,12 +644,43 @@ export const register: Register = (on, options) => {
 
     const queueTab = () => {
       if (snap.project === null) return noProject
-      if (snap.queue.length === 0) return card('queue', 'Working set', dim('Nothing waiting.'))
+      const project = snap.project
+      const tag = snap.tag
+      const ready = snap.queue.filter(t => !t.blocked).map(t => t.shortId)
+      const tagRow =
+        snap.tags.length > 0 || tag ? (
+          <Box flexDirection="row" gap={1}>
+            <Select
+              key="tag-pick"
+              options={[
+                { value: '', label: 'all tags' },
+                // keep a picked tag that left the working set, so the picker still shows it
+                ...[...new Set([...snap.tags, ...(tag ? [tag] : [])])].map(t => ({ value: t, label: `+${t}` })),
+              ]}
+              value={tag ?? ''}
+              onSelect={t => void update($, tagFilter, () => t || null).then(() => refresh($, true, true))}
+            />
+            {tag && ready.length > 0 ? (
+              <Button key="handoff-tag" label={`Hand +${tag} to Claude`} onPress={() => handoffTag($, project, tag, ready)} />
+            ) : null}
+          </Box>
+        ) : null
+      if (snap.queue.length === 0) {
+        return card(
+          'queue',
+          'Working set',
+          <Box flexDirection="column">
+            {tagRow}
+            {dim(tag ? `Nothing waiting under +${tag}.` : 'Nothing waiting.')}
+          </Box>,
+        )
+      }
       const more = snap.queueTotal - snap.queue.length
       return card(
         'queue',
         'Working set',
         <Box flexDirection="column">
+          {tagRow}
           {snap.queue.map(t => (
             <Box key={`q-${t.shortId}`} flexDirection="row" gap={1}>
               {chip(t.priority ?? '-', t.blocked ? 'inactive' : lib.priorityColor(t.priority))}
@@ -656,7 +706,7 @@ export const register: Register = (on, options) => {
               {t.blocked ? null : handoffButton(t, false)}
             </Box>
           ))}
-          {more > 0 ? dim(`…${more} more: tasqx list ${projectFilter(snap.project)} @working`) : null}
+          {more > 0 ? dim(`…${more} more: tasqx list ${queueFilter(project, tag)}`) : null}
         </Box>,
         { right: `${snap.queueTotal} by urgency` },
       )

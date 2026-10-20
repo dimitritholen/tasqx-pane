@@ -232,6 +232,25 @@ test('Hand to Claude on a queued task starts it and fills the prompt, unsent', a
   await ui.unmount()
 })
 
+test('picking a tag filters the queue, and its batch button fills the prompt without starting a timer', async ($, on) => {
+  const calls: string[] = []
+  const filled: string[] = []
+  fakeWorld(on, calls, '/home/me/demo', filled)
+  mock.clock(on, { now: NOW })
+  await $.command.run(typed('queue'))
+
+  const ui = await $.ui.mount({ plugin: 'tasqx-pane', surface: 'terminal', component: 'Pane', requestId: 'tasqx', props: PANE_PROPS })
+  expect(await ui.find({ key: 'handoff-tag' })).toBeUndefined()
+  await ui.select({ key: 'tag-pick', value: 'mod' })
+  expect(calls).toContain('list project:demo @working +mod --limit 15')
+  await ui.press({ key: 'handoff-tag' })
+  expect(filled).toEqual([
+    'Work through the tasqx tasks in `project:demo @working +mod`, most urgent first (now #9). Read each brief first and finish one before you start the next.',
+  ])
+  expect(calls.some(c => c.startsWith('start'))).toBe(false)
+  await ui.unmount()
+})
+
 test('Hand to Claude on the active task fills the prompt without starting it again', async ($, on) => {
   const calls: string[] = []
   const filled: string[] = []

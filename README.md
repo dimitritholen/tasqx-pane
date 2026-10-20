@@ -37,7 +37,7 @@ Each section is a card. Colors come from your Claude Code theme, so the pane rea
 | Tab | Hotkey | What is on it |
 | --- | --- | --- |
 | **Task** | `t` | The project's active task (one from another project never shows): title, priority, tags, tracked time against the estimate, due date, token use against its budget, the description (its first note), the checks, what it depends on and unblocks, and the newest note. With no active task it shows the next one up, with a Start button. |
-| **Queue** | `q` | The project's working set by urgency (blocked tasks dimmed), each with a Start button. |
+| **Queue** | `q` | The project's working set by urgency (blocked tasks dimmed), each with a Start button. A tag picker above it narrows the list to one tag. |
 | **Project** | `p` | Done/total with a progress bar, a burndown of open tasks over the last 60 days (a colored bar chart in the terminal, a sparkline in the desktop app and VS Code), open work, estimated time left, time tracked, overdue and blocked counts, a table per status, and the last five finished tasks. |
 | **Memory** | `m` | The project's standing rulings, and the memory hits tasqx finds for the active task. |
 
@@ -47,6 +47,7 @@ Under the prompt a status line shows the active task, also while the pane is clo
 
 - **Start** a task from the queue, and **Stop timer** on the active one (`s`).
 - **Hand to Claude** (`c`, or **→ Claude** on a queue row) starts the task's timer and puts a prompt in the prompt box, unsent: `Work on tasqx task #2265: <title>. Read its brief first.` Press Esc to get back to the prompt, change the text if you like, and press Enter. Claude never starts work you did not send.
+- **Hand +tag to Claude** appears once you pick a tag in the queue. It puts one prompt in the prompt box, unsent, that asks Claude to work through every task under that tag, most urgent first, one at a time. It starts no timer: Claude starts each task as it gets to it.
 - **Press a check** to cycle it open → passed → failed.
 
 When you start or stop a timer or mark a check, the pane also leaves Claude a note it reads on its next turn, such as *the user started the tasqx timer on #2265*. The note starts no turn and does not show in the transcript, so Claude knows what you are working on without being asked to act. Turn it off with **Tell Claude** in `/config`.

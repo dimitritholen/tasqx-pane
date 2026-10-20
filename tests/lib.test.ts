@@ -159,3 +159,13 @@ test('the handoff prompt fills in id, title and project', () => {
     '#9 Next in demo, #9',
   )
 })
+
+test('tags are collected once each, sorted', () => {
+  expect(lib.collectTags([{ tags: ['b', 'a'] }, { tags: ['a'] }, {}])).toEqual(['a', 'b'])
+})
+
+test('the tag handoff names the filter and the ready tasks', () => {
+  expect(lib.tagHandoffText('project:demo @working +mod', [9, 12])).toBe(
+    'Work through the tasqx tasks in `project:demo @working +mod`, most urgent first (now #9, #12). Read each brief first and finish one before you start the next.',
+  )
+})

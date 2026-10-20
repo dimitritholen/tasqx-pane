@@ -64,6 +64,10 @@ export type Snapshot = {
   otherActive: TaskRef[]
   queue: QueueRow[]
   queueTotal: number
+  /** every tag in the project's working set, for the tag picker */
+  tags: string[]
+  /** the tag the queue is filtered on, or null for all */
+  tag: string | null
   recentDone: TaskRef[]
   stats: StatusCount[]
   rulings: Ruling[]
@@ -79,6 +83,6 @@ export type Tab = 'task' | 'queue' | 'project' | 'memory'
 
 declare module 'claude-code' {
   interface PluginState {
-    'tasqx-pane': { snapshot: Snapshot | null; tab: Tab; busy: string | null }
+    'tasqx-pane': { snapshot: Snapshot | null; tab: Tab; busy: string | null; tag: string | null }
   }
 }

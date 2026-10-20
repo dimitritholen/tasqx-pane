@@ -263,3 +263,14 @@ export function handoffText(template: string, task: { shortId: number; title: st
     .replaceAll('{title}', task.title)
     .replaceAll('{project}', task.project ?? '')
 }
+
+/** Every tag on these tasks, once each, sorted. */
+export function collectTags(tasks: Json[]): string[] {
+  return [...new Set<string>(tasks.flatMap(t => t.tags ?? []))].sort()
+}
+
+/** The prompt that hands every task under a tag to Claude, most urgent first. */
+export function tagHandoffText(filter: string, ids: number[]): string {
+  const now = ids.length > 0 ? ` (now ${ids.map(id => `#${id}`).join(', ')})` : ''
+  return `Work through the tasqx tasks in \`${filter}\`, most urgent first${now}. Read each brief first and finish one before you start the next.`
+}
