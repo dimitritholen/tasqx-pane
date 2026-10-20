@@ -79,6 +79,6 @@ export type Tab = 'task' | 'queue' | 'project' | 'memory'
 
 declare module 'claude-code' {
   interface PluginState {
-    'tasqx-pane': { snapshot: Snapshot | null; tab: Tab; busy: string | null }
+    'tasqx-pane': { snapshot: Snapshot | null; tab: Tab; busy: string | null; pick: string | null }
   }
 }

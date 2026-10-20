@@ -14,6 +14,8 @@ const TAB_LABEL: Record<Tab, string> = { task: 'Task', queue: 'Queue', project: 
 const snapshot = atom({ plugin: 'tasqx-pane', key: 'snapshot' } as const, null)
 const tab = atom({ plugin: 'tasqx-pane', key: 'tab' } as const, 'task')
 const busy = atom({ plugin: 'tasqx-pane', key: 'busy' } as const, null)
+// what is typed in the project picker; null while it is closed
+const pick = atom({ plugin: 'tasqx-pane', key: 'pick' } as const, null)
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err))
 const projectFilter = (p: string) => `project:${/\s/.test(p) ? `"${p}"` : p}`
@@ -82,6 +84,7 @@ const folderKey = (root: string) => `folder:${root}`
 /** Remembers `project` for this folder, then shows it. */
 async function chooseProject($: Engine, project: string) {
   await $.store.set(folderKey(await folder($)), project)
+  await update($, pick, () => null)
   await openPane($)
 }
 
@@ -302,11 +305,12 @@ export const register: Register = (on, options) => {
 
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text, Button, Select, Markdown } = $.ui.resolve(e)
+    const { Box, Text, Button, Input, Markdown } = $.ui.resolve(e)
     const Raster = e.surface === 'terminal' ? $.ui.resolve(e).Raster : null
     const snap = await read($, snapshot)
     const current = await read($, tab)
     const working = await read($, busy)
+    const query = await read($, pick)
     const now = await $.clock.now()
     const width = Math.max(24, e.props.bodyColumns)
     // a card's border and padding take four columns
@@ -365,29 +369,55 @@ export const register: Register = (on, options) => {
       )
     }
 
+    // type to narrow the projects, Enter takes the best match; the folder remembers the pick
+    const picker = () => {
+      if (!snap || snap.projects.length === 0 || (snap.project !== null && query === null)) return null
+      const hits = lib.fuzzyFind(snap.projects, query ?? '')
+      return card(
+        'picker',
+        'Project for this folder',
+        <Box flexDirection="column">
+          <Input
+            key="project-search"
+            placeholder="type to search"
+            submitLabel="pick"
+            value={query ?? ''}
+            autoFocus
+            onInput={q => void update($, pick, () => q)}
+            onSubmit={() => void (hits[0] && chooseProject($, hits[0]))}
+          />
+          {hits.length === 0 ? dim('no project matches') : null}
+          {hits.map((p, i) => (
+            <Button
+              key={`pick-${p}`}
+              label={p}
+              variant={i === 0 ? 'primary' : undefined}
+              onPress={() => void chooseProject($, p)}
+            />
+          ))}
+          {snap.project ? <Button key="pick-cancel" label="Cancel" onPress={() => update($, pick, () => null)} /> : null}
+        </Box>,
+        { color: 'suggestion' },
+      )
+    }
+
     const updated = new Date(snap.fetchedAt).toTimeString().slice(0, 5)
     const header = (
       <Box flexDirection="column">
         {tabs}
         <Box flexDirection="row" justifyContent="space-between" gap={1} paddingX={1}>
-          {snap.projects.length > 0 ? (
-            <Select
-              key="project-pick"
-              label={snap.project ? undefined : `no project "${snap.dirName ?? '?'}"`}
-              options={[
-                // a placeholder, so the picker does not look like the first project is chosen
-                ...(snap.project ? [] : [{ value: '', label: 'pick a project' }]),
-                ...snap.projects.map(p => ({ value: p })),
-              ]}
-              value={snap.project ?? ''}
-              onSelect={p => void (p && chooseProject($, p))}
-            />
-          ) : (
-            <Text bold wrap="truncate-end">{`no project "${snap.dirName ?? '?'}"`}</Text>
-          )}
-          {snap.projectSource === 'config' ? <Text dimColor>(from /config)</Text> : null}
+          <Box flexDirection="row" gap={1}>
+            <Text bold wrap="truncate-end">
+              {snap.project ?? `no project "${snap.dirName ?? '?'}"`}
+              {snap.projectSource === 'config' ? <Text dimColor> (from /config)</Text> : null}
+            </Text>
+            {snap.project && snap.projects.length > 1 ? (
+              <Button key="switch" label="⇄" hotkey="w" onPress={() => update($, pick, q => (q === null ? '' : null))} />
+            ) : null}
+          </Box>
           <Text dimColor>{working ? `${working}…` : `updated ${updated}`}</Text>
         </Box>
+        {picker()}
       </Box>
     )
 
@@ -416,7 +446,7 @@ export const register: Register = (on, options) => {
             'no-project',
             'No project for this folder',
             dim(
-              `Pick one with the project picker above (this folder remembers it), or create one with tasqx init ${snap.dirName ?? '<name>'}.`,
+              `Pick one above (this folder remembers it), or create one with tasqx init ${snap.dirName ?? '<name>'}.`,
             ),
             { color: 'warning' },
           )

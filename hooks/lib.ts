@@ -95,6 +95,40 @@ export function pickProject(
   return { project: null, source: 'none' }
 }
 
+/**
+ * The projects that match what was typed, best first: exact, then prefix,
+ * then substring, then the letters in order (tighter is better). Empty: all.
+ */
+export function fuzzyFind(names: readonly string[], query: string, limit = 8): string[] {
+  const q = query.trim().toLowerCase()
+  if (!q) return names.slice(0, limit)
+  const scored: Array<[number, string]> = []
+  for (const name of names) {
+    const n = name.toLowerCase()
+    let score: number
+    if (n === q) score = 0
+    else if (n.startsWith(q)) score = 1
+    else if (n.includes(q)) score = 2
+    else {
+      // ponytail: greedy leftmost match, not the tightest one; fine for project names
+      let i = 0
+      let first = -1
+      let last = -1
+      for (let j = 0; j < n.length && i < q.length; j++) {
+        if (n[j] !== q[i]) continue
+        if (first < 0) first = j
+        last = j
+        i++
+      }
+      if (i < q.length) continue
+      score = 3 + (last - first + 1 - q.length) / n.length
+    }
+    scored.push([score, name])
+  }
+  scored.sort((a, b) => a[0] - b[0] || a[1].length - b[1].length || a[1].localeCompare(b[1]))
+  return scored.slice(0, limit).map(s => s[1])
+}
+
 const taskRef = (t: Json): TaskRef => ({
   shortId: t.short_id,
   title: t.title ?? `#${t.short_id}`,

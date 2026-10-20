@@ -49,6 +49,16 @@ describe('project mapping', () => {
     expect(lib.pickProject(projects, 'scratch', '')).toEqual({ project: null, source: 'none' })
   })
 
+  test('fuzzy find ranks exact, prefix, substring, then letters in order', () => {
+    const names = ['tasqx-pane', 'tasqx', 'swarmtray', 'swarm', 'qa-overlay']
+    expect(lib.fuzzyFind(names, 'tasqx')).toEqual(['tasqx', 'tasqx-pane'])
+    expect(lib.fuzzyFind(names, 'swa')).toEqual(['swarm', 'swarmtray'])
+    expect(lib.fuzzyFind(names, 'pane')).toEqual(['tasqx-pane'])
+    expect(lib.fuzzyFind(names, 'tqp')).toEqual(['tasqx-pane'])
+    expect(lib.fuzzyFind(names, 'zzz')).toEqual([])
+    expect(lib.fuzzyFind(names, '', 2)).toEqual(['tasqx-pane', 'tasqx'])
+  })
+
   test('basename takes the last segment on any separator', () => {
     expect(lib.basename('/Users/me/projects/tasqx/')).toBe('tasqx')
     expect(lib.basename('C:\\dev\\letmecook')).toBe('letmecook')

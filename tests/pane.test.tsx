@@ -146,7 +146,8 @@ test('a folder with no project says so instead of showing another project', asyn
   await $.command.run(typed('queue'))
 
   const ui = await $.ui.mount({ plugin: 'tasqx-pane', surface: 'terminal', component: 'Pane', requestId: 'tasqx', props: PANE_PROPS })
-  expect((await ui.find({ key: 'project-pick' }))?.props.label).toBe('no project "scratch"')
+  expect(await ui.find({ type: 'Text', text: /no project "scratch"/ })).toBeDefined()
+  expect(await ui.find({ key: 'project-search' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /tasqx init scratch/ })).toBeDefined()
   await ui.unmount()
 })
@@ -158,9 +159,27 @@ test('picking a project in a folder without one shows it and remembers it', asyn
   await $.command.run(typed('queue'))
 
   const ui = await $.ui.mount({ plugin: 'tasqx-pane', surface: 'terminal', component: 'Pane', requestId: 'tasqx', props: PANE_PROPS })
-  await ui.select({ key: 'project-pick', value: 'demo' })
+  await ui.input({ key: 'project-search', text: 'dm', kind: 'change' })
+  expect(await ui.find({ key: 'pick-other' })).toBeUndefined()
+  expect(await ui.find({ key: 'pick-demo' })).toBeDefined()
+  await ui.input({ key: 'project-search', text: 'dm' })
+  expect(await ui.find({ key: 'project-search' })).toBeUndefined()
   expect(store).toEqual({ 'folder:/home/me/scratch': 'demo' })
   expect(await ui.find({ type: 'Text', text: /Next thing/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('the switch button opens the picker in a folder that has a project', async ($, on) => {
+  fakeWorld(on, [])
+  mock.clock(on, { now: NOW })
+  await $.command.run(typed(''))
+
+  const ui = await $.ui.mount({ plugin: 'tasqx-pane', surface: 'terminal', component: 'Pane', requestId: 'tasqx', props: PANE_PROPS })
+  expect(await ui.find({ key: 'project-search' })).toBeUndefined()
+  await ui.press({ key: 'switch' })
+  expect(await ui.find({ key: 'pick-other' })).toBeDefined()
+  await ui.press({ key: 'pick-cancel' })
+  expect(await ui.find({ key: 'project-search' })).toBeUndefined()
   await ui.unmount()
 })
 
