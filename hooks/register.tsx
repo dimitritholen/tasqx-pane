@@ -738,17 +738,20 @@ export const register: Register = (on, options) => {
         )
       }
       const more = snap.queueTotal - snap.queue.length
+      // ids of different lengths would push their titles out of line
+      const idWidth = Math.max(...snap.queue.map(t => String(t.shortId).length))
       return card(
         'queue',
         'Working set',
-        <Box flexDirection="column">
+        <Box flexDirection="column" gap={1}>
           {tagRow}
           {snap.queue.map(t => (
             <Box key={`q-${t.shortId}`} flexDirection="row" gap={1}>
-              {chip(t.priority ?? '-', t.blocked ? 'inactive' : lib.priorityColor(t.priority))}
+              {/* a long title would squeeze the chip and wrap it over two lines */}
+              <Box flexShrink={0}>{chip(t.priority ?? '-', t.blocked ? 'inactive' : lib.priorityColor(t.priority))}</Box>
               <Box flexDirection="column" flexGrow={1} flexShrink={1}>
                 <Text wrap="truncate-end" dimColor={t.blocked}>
-                  <Text dimColor>#{t.shortId}</Text> {t.title}
+                  <Text dimColor>#{String(t.shortId).padEnd(idWidth)}</Text> {t.title}
                 </Text>
                 <Text wrap="truncate-end">
                   <Text dimColor>
