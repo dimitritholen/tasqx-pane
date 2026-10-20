@@ -94,7 +94,10 @@ async function load($: Engine, isFull: boolean): Promise<Snapshot> {
     const { project, source, dirName } = await resolveProject($)
     Object.assign(base, { project, projectSource: source, dirName })
 
-    const actives: any[] = (await tasqx($, ['list', 'status:active', '--sort', '-modified'])).tasks ?? []
+    // only this folder's project: another project's active task is not this repo's work
+    const actives: any[] = project
+      ? ((await tasqx($, ['list', projectFilter(project), 'status:active', '--sort', '-modified'])).tasks ?? [])
+      : []
     const [first, ...rest] = actives
     base.otherActive = rest.map(lib.toTaskRef)
     if (first) {

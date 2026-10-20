@@ -36,7 +36,7 @@ Each section is a card. Colors come from your Claude Code theme, so the pane rea
 
 | Tab | Hotkey | What is on it |
 | --- | --- | --- |
-| **Task** | `t` | The active task: title, priority, tags, tracked time against the estimate, due date, token use against its budget, the description (its first note), the checks, what it depends on and unblocks, and the newest note. With no active task it shows the next one up, with a Start button. |
+| **Task** | `t` | The project's active task (one from another project never shows): title, priority, tags, tracked time against the estimate, due date, token use against its budget, the description (its first note), the checks, what it depends on and unblocks, and the newest note. With no active task it shows the next one up, with a Start button. |
 | **Queue** | `q` | The project's working set by urgency (blocked tasks dimmed), each with a Start button. |
 | **Project** | `p` | Done/total with a progress bar, a burndown of open tasks over the last 60 days (a colored bar chart in the terminal, a sparkline in the desktop app and VS Code), open work, estimated time left, time tracked, overdue and blocked counts, a table per status, and the last five finished tasks. |
 | **Memory** | `m` | The project's standing rulings, and the memory hits tasqx finds for the active task. |

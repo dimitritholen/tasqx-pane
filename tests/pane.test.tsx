@@ -20,7 +20,7 @@ const task = {
 // What each tasqx call answers, by the arguments it starts with.
 const ANSWERS: Array<[string, unknown]> = [
   ['projects', { projects: [{ name: 'demo', archived: false }, { name: 'other', archived: false }] }],
-  ['list status:active', { tasks: [task], total: 1 }],
+  ['list project:demo status:active', { tasks: [task], total: 1 }],
   [
     'brief 7',
     {
@@ -143,6 +143,18 @@ test('a folder with no project says so instead of showing another project', asyn
   const ui = await $.ui.mount({ plugin: 'tasqx-pane', surface: 'terminal', component: 'Pane', requestId: 'tasqx', props: PANE_PROPS })
   expect(await ui.find({ type: 'Text', text: /no project "scratch"/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /tasqx init scratch/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test("a folder with no project shows no other project's active task", async ($, on) => {
+  const calls: string[] = []
+  fakeWorld(on, calls, '/home/me/scratch')
+  mock.clock(on, { now: NOW })
+  await $.command.run(typed(''))
+
+  const ui = await $.ui.mount({ plugin: 'tasqx-pane', surface: 'terminal', component: 'Pane', requestId: 'tasqx', props: PANE_PROPS })
+  expect(await ui.find({ type: 'Text', text: /Ship the pane/ })).toBeUndefined()
+  expect(calls.some(c => c.includes('status:active'))).toBe(false)
   await ui.unmount()
 })
 
