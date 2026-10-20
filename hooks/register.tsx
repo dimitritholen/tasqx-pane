@@ -380,7 +380,10 @@ export const register: Register = (on, options) => {
 
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text, Button, Select, Markdown } = $.ui.resolve(e)
+    const elements = $.ui.resolve(e)
+    const { Box, Text, Button, Markdown } = elements
+    // not every surface has a Select; there the project name shows as text
+    const Select = 'Select' in elements ? elements.Select : null
     const Raster = e.surface === 'terminal' ? $.ui.resolve(e).Raster : null
     const snap = await read($, snapshot)
     const current = await read($, tab)
@@ -448,7 +451,7 @@ export const register: Register = (on, options) => {
       <Box flexDirection="column">
         {tabs}
         <Box flexDirection="row" justifyContent="space-between" gap={1} paddingX={1}>
-          {snap.projects.length > 0 ? (
+          {Select && snap.projects.length > 0 ? (
             <Select
               key="project-pick"
               label={snap.project ? undefined : `no project "${snap.dirName ?? '?'}"`}
@@ -707,7 +710,7 @@ export const register: Register = (on, options) => {
       const tag = snap.tag
       const ready = snap.queue.filter(t => !t.blocked).map(t => t.shortId)
       const tagRow =
-        snap.tags.length > 0 || tag ? (
+        Select && (snap.tags.length > 0 || tag) ? (
           <Box flexDirection="row" gap={1}>
             <Select
               key="tag-pick"
