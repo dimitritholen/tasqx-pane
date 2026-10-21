@@ -450,7 +450,7 @@ export const register: Register = (on, options) => {
     const header = (
       <Box flexDirection="column">
         {tabs}
-        <Box flexDirection="row" justifyContent="space-between" gap={1} paddingX={1}>
+        <Box flexDirection="row" justifyContent="space-between" gap={1} paddingX={1} flexWrap="wrap">
           {Select && snap.projects.length > 0 ? (
             <Select
               key="project-pick"
@@ -466,8 +466,11 @@ export const register: Register = (on, options) => {
           ) : (
             <Text bold wrap="truncate-end">{`no project "${snap.dirName ?? '?'}"`}</Text>
           )}
-          {snap.projectSource === 'config' ? <Text dimColor>(from /config)</Text> : null}
-          <Text dimColor>{working ? `${working}…` : `updated ${updated}`}</Text>
+          {snap.projectSource === 'config' ? <Box flexShrink={0}><Text dimColor>(from /config)</Text></Box> : null}
+          {/* never shrink: a squeezed status wraps one letter per line down the pane */}
+          <Box flexShrink={0}>
+            <Text dimColor>{working ? `${working}…` : `updated ${updated}`}</Text>
+          </Box>
         </Box>
       </Box>
     )
