@@ -5,7 +5,7 @@ A [Claude Code mod](https://code.claude.com/docs/en/plugins/mods/overview) that 
 It works in every repository whose folder name matches a [tasqx](https://github.com/dimitritholen/tasqx) project, or that you point at one with the project picker, and reads your store through the `tasqx` CLI.
 
 ```text
- [ Task ] [ Queue ] [ Project ] [ Memory ] [ ↻ ]
+ [ Task ] [ Queue ] [ Project ] [ Memory ] [ Notes ] [ ↻ ]
  tasqx-pane                              updated 15:12
 ╭──────────────────────────────────────────────────────╮
 │ #2270                                       ▶ active │
@@ -40,6 +40,7 @@ Each section is a card. Colors come from your Claude Code theme, so the pane rea
 | **Queue** | `q` | The project's working set by urgency (blocked tasks dimmed), each with a Start button. A tag picker above it narrows the list to one tag. |
 | **Project** | `p` | Done/total with a progress bar, a burndown of open tasks over the last 60 days (a colored bar chart in the terminal, a sparkline in the desktop app and VS Code), open work, estimated time left, time tracked, overdue and blocked counts, a table per status, and the last five finished tasks. |
 | **Memory** | `m` | The project's standing rulings, and the memory hits tasqx finds for the active task. |
+| **Notes** | `n` | Your tasqx notes inbox (tasqx 0.16.0 or later): every open note, of any project, newest first, the first 15 of them. A URL in a note is a link you can click. A field at the top saves what you type as a new note (not on mobile, where `tasqx note "…"` does it), and **Links only** (`l`) narrows the list to notes with a URL. |
 
 Under the prompt a status line shows the active task, also while the pane is closed: `▶ #2270 42m / 3h 00m · 2/5 checks · tasqx-pane v0.1 …`
 
@@ -49,8 +50,9 @@ Under the prompt a status line shows the active task, also while the pane is clo
 - **Hand to Claude** (`c`, or **→ Claude** on a queue row) starts the task's timer and puts a prompt in the prompt box, unsent: `Work on tasqx task #2265: <title>. Read its brief first.` Press Esc to get back to the prompt, change the text if you like, and press Enter. Claude never starts work you did not send.
 - **Hand +tag to Claude** appears once you pick a tag in the queue. It puts one prompt in the prompt box, unsent, that asks Claude to work through every task under that tag, most urgent first, one at a time. It starts no timer: Claude starts each task as it gets to it.
 - **Press a check** to cycle it open → passed → failed.
+- On a note: **Archive** it, file it as a task (**→ Task**) or a memory doc (**→ Memory**), which archives it too, or **Remove** it for good. Remove asks for a second press first, and `tasqx undo` cannot bring a removed note back.
 
-When you start or stop a timer or mark a check, the pane also leaves Claude a note it reads on its next turn, such as *the user started the tasqx timer on #2265*. The note starts no turn and does not show in the transcript, so Claude knows what you are working on without being asked to act. Turn it off with **Tell Claude** in `/config`.
+When you start or stop a timer, mark a check or promote a note, the pane also leaves Claude a note it reads on its next turn, such as *the user started the tasqx timer on #2265*. The note starts no turn and does not show in the transcript, so Claude knows what you are working on without being asked to act. Turn it off with **Tell Claude** in `/config`.
 
 It does not complete tasks. Completing one goes through your agent or `tasqx done`, so the delivery note gets written first.
 
@@ -91,7 +93,7 @@ The pane opens by itself when a session starts in a repo that has a tasqx projec
 
 ```text
 /tasqx-pane              open the pane
-/tasqx-pane queue        open it on a tab: task, queue, project or memory
+/tasqx-pane queue        open it on a tab: task, queue, project, memory or notes
 /tasqx-pane refresh      read tasqx again
 /tasqx-pane close        close it
 ```
@@ -122,7 +124,7 @@ The project name at the top of the pane is a picker: focus it, scroll the projec
 
 ## Trust
 
-A mod runs with your permissions and is not sandboxed. This one runs only the `tasqx` binary you configure: `list`, `brief`, `report`, `projects`, `chart burndown` and `memory list` to read, `start`, `stop` and `check set` when you press a button, and `start --keep` when a subagent is launched on a task that is not active. Besides that it fills your prompt box when you press Hand to Claude, and leaves Claude the notes described above. `claude plugin validate` on a clone lists every call it makes.
+A mod runs with your permissions and is not sandboxed. This one runs only the `tasqx` binary you configure: `list`, `brief`, `report`, `projects`, `chart burndown`, `memory list` and `notes` to read, `start`, `stop`, `check set` and `note` (save, archive, promote, remove) when you press a button or save a note, and `start --keep` when a subagent is launched on a task that is not active. Besides that it fills your prompt box when you press Hand to Claude, and leaves Claude the notes described above. `claude plugin validate` on a clone lists every call it makes.
 
 ## Develop
 

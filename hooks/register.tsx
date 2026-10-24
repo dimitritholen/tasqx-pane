@@ -8,13 +8,16 @@ type Engine = EngineInterface
 
 const PANE = 'tasqx'
 const BURNDOWN_DAYS = 60
-const TABS: readonly Tab[] = ['task', 'queue', 'project', 'memory']
-const TAB_LABEL: Record<Tab, string> = { task: 'Task', queue: 'Queue', project: 'Project', memory: 'Memory' }
+const TABS: readonly Tab[] = ['task', 'queue', 'project', 'memory', 'notes']
+const TAB_LABEL: Record<Tab, string> = { task: 'Task', queue: 'Queue', project: 'Project', memory: 'Memory', notes: 'Notes' }
+const NOTES_SHOWN = 15
 
 const snapshot = atom({ plugin: 'tasqx-pane', key: 'snapshot' } as const, null)
 const tab = atom({ plugin: 'tasqx-pane', key: 'tab' } as const, 'task')
 const busy = atom({ plugin: 'tasqx-pane', key: 'busy' } as const, null)
 const tagFilter = atom({ plugin: 'tasqx-pane', key: 'tag' } as const, null)
+const notesLinks = atom({ plugin: 'tasqx-pane', key: 'notesLinks' } as const, false)
+const confirmRemove = atom({ plugin: 'tasqx-pane', key: 'confirmRemove' } as const, null)
 // in $.state, not the module, so a hot reload (which runs session.start again) keeps it
 const sessionStart = atom({ plugin: 'tasqx-pane', key: 'sessionStart' } as const, null)
 
@@ -49,11 +52,11 @@ const cache = {
   standingAt: 0,
 }
 
-/** One `tasqx <args> --json` call; rejects with tasqx's own error message. */
+/** One `tasqx <args> --json` call (`--json` added unless `args` has it, as before a `--`); rejects with tasqx's own error message. */
 async function tasqx($: Engine, args: string[]): Promise<any> {
   let ran
   try {
-    ran = await $.process.run([cfg.bin, ...args, '--json'], { timeoutMs: 15000 })
+    ran = await $.process.run([cfg.bin, ...args, ...(args.includes('--json') ? [] : ['--json'])], { timeoutMs: 15000 })
   } catch (err) {
     throw new Error(`could not run ${cfg.bin}: ${message(err)}`)
   }
@@ -112,6 +115,9 @@ async function load($: Engine, isFull: boolean): Promise<Snapshot> {
     recentDone: [],
     stats: [],
     rulings: [],
+    notes: [],
+    notesTotal: 0,
+    notesError: null,
     burndown: { from: null, remaining: [] },
     fetchedAt,
     isFull,
@@ -140,6 +146,20 @@ async function load($: Engine, isFull: boolean): Promise<Snapshot> {
       cache.brief = null
     }
 
+    // every open note, whatever the project; an older tasqx without notes costs this tab alone
+    const notes = isFull
+      ? tasqx($, ['notes', ...((await read($, notesLinks)) ? ['--links'] : [])]).then(
+          listed => {
+            const all: any[] = listed.notes ?? []
+            base.notes = all.slice(0, NOTES_SHOWN).map(lib.toInboxNote)
+            base.notesTotal = Number(listed.total ?? all.length)
+          },
+          err => {
+            base.notesError = message(err)
+          },
+        )
+      : null
+
     if (isFull && project) {
       const scope = projectFilter(project)
       const [queue, tagged, done, report, rulings, burndown] = await Promise.all([
@@ -162,6 +182,7 @@ async function load($: Engine, isFull: boolean): Promise<Snapshot> {
         preview: String(d.body_preview ?? ''),
       }))
     }
+    await notes
   } catch (err) {
     base.error = message(err)
   }
@@ -213,13 +234,13 @@ async function tell($: Engine, text: string) {
   }
 }
 
-/** Runs one tasqx write; on success tells Claude `note` (when given). */
-async function act($: Engine, args: string[], label: string, note?: string): Promise<boolean> {
+/** Runs one tasqx write; on success tells Claude `note` (when given, or made from the result). */
+async function act($: Engine, args: string[], label: string, note?: string | ((result: any) => string)): Promise<boolean> {
   await update($, busy, () => label)
   try {
-    await tasqx($, args)
+    const result = await tasqx($, args)
     $.ui.toast(`tasqx: ${label}`)
-    if (note) await tell($, note)
+    if (note) await tell($, typeof note === 'string' ? note : note(result))
     return true
   } catch (err) {
     $.ui.toast(`tasqx: ${label} failed: ${message(err)}`)
@@ -312,8 +333,8 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'tasqx-pane',
-      description: 'Open the tasqx pane: active task, queue, project numbers, standing rulings',
-      argumentHint: '[task|queue|project|memory|refresh|close]',
+      description: 'Open the tasqx pane: active task, queue, project numbers, standing rulings, notes',
+      argumentHint: '[task|queue|project|memory|notes|refresh|close]',
     })
     const started = await next(e)
     const now = await $.clock.now()
@@ -381,13 +402,17 @@ export const register: Register = (on, options) => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const elements = $.ui.resolve(e)
-    const { Box, Text, Button, Markdown } = elements
+    const { Box, Text, Button, Markdown, Link } = elements
     // not every surface has a Select; there the project name shows as text
     const Select = 'Select' in elements ? elements.Select : null
+    // mobile draws no field: there notes are captured with tasqx note
+    const Input = 'Input' in elements ? elements.Input : null
     const Raster = e.surface === 'terminal' ? $.ui.resolve(e).Raster : null
     const snap = await read($, snapshot)
     const current = await read($, tab)
     const working = await read($, busy)
+    const linksOnly = await read($, notesLinks)
+    const removing = await read($, confirmRemove)
     const now = await $.clock.now()
     const width = Math.max(24, e.props.bodyColumns)
     // a card's border and padding take four columns
@@ -938,8 +963,121 @@ export const register: Register = (on, options) => {
       )
     }
 
+    const notesTab = () => {
+      // any press but the second Remove drops a pending Remove
+      const noteAct = (args: string[], label: string, note?: string | ((result: any) => string)) =>
+        update($, confirmRemove, () => null).then(() => act($, args, label, note))
+      const capture = Input ? (
+        <Input
+          key="note-capture"
+          placeholder="idea or URL…"
+          submitLabel="save"
+          value=""
+          onSubmit={v => {
+            const text = v.trim()
+            // `--` so a note like "7" or "-x" is text, not an id or a flag
+            if (text) void noteAct(['note', '--json', '--', text], 'noted')
+          }}
+        />
+      ) : null
+      const filter = (
+        <Button
+          key="notes-links"
+          label={linksOnly ? 'All notes' : 'Links only'}
+          hotkey="l"
+          onPress={() => update($, notesLinks, shown => !shown).then(() => update($, confirmRemove, () => null)).then(() => refresh($, true, true))}
+        />
+      )
+      if (snap.notesError) {
+        return card(
+          'notes',
+          'Notes',
+          <Box flexDirection="column">
+            <Text color="error" wrap="wrap">
+              {snap.notesError}
+            </Text>
+            {dim('Notes need tasqx 0.16.0 or later.')}
+          </Box>,
+          { color: 'error' },
+        )
+      }
+      const more = snap.notesTotal - snap.notes.length
+      return card(
+        'notes',
+        linksOnly ? 'Notes with a link' : 'Notes',
+        <Box flexDirection="column" gap={1}>
+          {capture}
+          {filter}
+          {snap.notes.length === 0
+            ? dim(linksOnly ? 'No open note has a link.' : 'No open notes. Type one above, or tasqx note "…".')
+            : snap.notes.map(n => (
+                <Box key={`note-${n.shortId}`} flexDirection="column">
+                  <Text wrap="wrap">
+                    <Text dimColor>#{n.shortId} </Text>
+                    {lib.splitLinks(n.body).map((seg, i) =>
+                      seg.href ? (
+                        <Link key={`note-${n.shortId}-link-${i}`} href={seg.href}>
+                          {seg.text}
+                        </Link>
+                      ) : (
+                        seg.text
+                      ),
+                    )}
+                  </Text>
+                  <Box flexDirection="row" gap={1} flexWrap="wrap">
+                    {dim(lib.relativeTime(n.created, now))}
+                    <Button key={`archive-${n.shortId}`} label="Archive" onPress={() => noteAct(['note', String(n.shortId), 'archive'], `archived note #${n.shortId}`)} />
+                    <Button
+                      key={`totask-${n.shortId}`}
+                      label="→ Task"
+                      onPress={() =>
+                        noteAct(
+                          ['note', String(n.shortId), 'promote', 'task'],
+                          `note #${n.shortId} → task`,
+                          r => `The user promoted tasqx note #${n.shortId} to task #${r.task?.short_id ?? '?'} from the pane. Nothing is asked of you.`,
+                        )
+                      }
+                    />
+                    <Button
+                      key={`tomemory-${n.shortId}`}
+                      label="→ Memory"
+                      onPress={() =>
+                        noteAct(
+                          ['note', String(n.shortId), 'promote', 'memory'],
+                          `note #${n.shortId} → memory`,
+                          r => `The user promoted tasqx note #${n.shortId} to the memory doc ${quote(String(r.doc?.title ?? ''))} from the pane. Nothing is asked of you.`,
+                        )
+                      }
+                    />
+                    {removing === n.shortId ? (
+                      <Button
+                        key={`remove-${n.shortId}`}
+                        label="Press again to remove"
+                        variant="primary"
+                        onPress={() => noteAct(['note', String(n.shortId), 'rm'], `removed note #${n.shortId}`)}
+                      />
+                    ) : (
+                      <Button key={`remove-${n.shortId}`} label="Remove" onPress={() => update($, confirmRemove, () => n.shortId)} />
+                    )}
+                  </Box>
+                </Box>
+              ))}
+          {more > 0 ? dim(`…${more} more: tasqx notes${linksOnly ? ' --links' : ''}`) : null}
+        </Box>,
+        { right: String(snap.notesTotal) },
+      )
+    }
+
     const body =
-      current === 'queue' ? queueTab() : current === 'project' ? projectTab() : current === 'memory' ? memoryTab() : taskTab()
+      current === 'queue'
+        ? queueTab()
+        : current === 'project'
+          ? projectTab()
+          : current === 'memory'
+            ? memoryTab()
+            : current === 'notes'
+              ? notesTab()
+              : taskTab()
 
     return (
       <Box flexDirection="column">

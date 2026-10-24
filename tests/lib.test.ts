@@ -206,3 +206,35 @@ describe('enforcing rulings', () => {
     expect(lib.liveRulingsText(docs, 'demo', Date.parse('2026-10-21T00:00:00Z'))).toBe(null)
   })
 })
+
+describe('notes', () => {
+  test('a note body splits into text and its http(s) links', () => {
+    expect(lib.splitLinks('see https://a.io/x. and http://b.io')).toEqual([
+      { text: 'see ' },
+      { text: 'https://a.io/x', href: 'https://a.io/x' },
+      { text: '. and ' },
+      { text: 'http://b.io', href: 'http://b.io' },
+    ])
+    expect(lib.splitLinks('(https://en.wikipedia.org/wiki/Foo_(bar))')).toEqual([
+      { text: '(' },
+      { text: 'https://en.wikipedia.org/wiki/Foo_(bar)', href: 'https://en.wikipedia.org/wiki/Foo_(bar)' },
+      { text: ')' },
+    ])
+    expect(lib.splitLinks('no link here')).toEqual([{ text: 'no link here' }])
+    expect(lib.splitLinks('')).toEqual([{ text: '' }])
+  })
+
+  test('a link that would open somewhere else stays text', () => {
+    expect(lib.splitLinks('https://google.com@evil.com/')).toEqual([{ text: 'https://google.com@evil.com/' }])
+    expect(lib.splitLinks('HTTPS://x.io')).toEqual([{ text: 'HTTPS://x.io' }])
+  })
+
+  test('a tasqx note maps to its row', () => {
+    expect(lib.toInboxNote({ short_id: 3, body: 'b', has_links: false, created: '2026-10-19T11:00:00Z', _rev: 0 })).toEqual({
+      shortId: 3,
+      body: 'b',
+      hasLinks: false,
+      created: '2026-10-19T11:00:00Z',
+    })
+  })
+})

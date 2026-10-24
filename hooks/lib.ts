@@ -1,7 +1,7 @@
 // Pure helpers: parsing tasqx's JSON and formatting it. No `$` here, so the
 // tests reach every branch without a session.
 
-import type { ActiveTask, MemoryHit, ProjectSource, QueueRow, StatusCount, TaskRef } from '../types'
+import type { ActiveTask, InboxNote, MemoryHit, ProjectSource, QueueRow, StatusCount, TaskRef } from '../types'
 
 type Json = any
 
@@ -301,4 +301,59 @@ export function liveRulingsText(docs: readonly Json[], project: string | null, s
     return `- ${d.title}${first ? `: ${first}` : ''}`
   })
   return ['Standing rulings added during this session — follow them:', ...lines].join('\n')
+}
+
+/** A note from `tasqx notes --json`. */
+export function toInboxNote(n: Json): InboxNote {
+  return {
+    shortId: Number(n.short_id),
+    body: String(n.body ?? ''),
+    hasLinks: Boolean(n.has_links),
+    created: String(n.created ?? ''),
+  }
+}
+
+// Ported from tasqx-desktop's state/notes.ts, so a link reads the same in both.
+// A link runs to the next whitespace or quote; the scheme is case-sensitive, as `has_links` is.
+const LINK_RE = /https?:\/\/[^\s<>"']+/g
+const TRAILING = '.,;:!?)]}'
+// C0, DEL and C1 controls
+// eslint-disable-next-line no-control-regex
+const CONTROL_RE = /[\u0000-\u001f\u007f-\u009f]/
+
+/** Trailing punctuation is prose, except a `)` closing a `(` inside the link. */
+function trimTrailing(href: string): string {
+  let end = href.length
+  while (end > 0 && TRAILING.includes(href[end - 1]!)) {
+    const head = href.slice(0, end)
+    if (head.endsWith(')') && head.split('(').length > head.split(')').length - 1) break
+    end -= 1
+  }
+  return href.slice(0, end)
+}
+
+/** No userinfo (`https://google.com@evil.com/` reads as one host and goes to another), backslash or control character; `Link` takes 2048 characters. */
+function openable(href: string): boolean {
+  const authority = href.slice(href.indexOf('//') + 2).split(/[/?#]/)[0] ?? ''
+  return (
+    /^https?:\/\/[^/]/.test(href) && !authority.includes('@') && !href.includes('\\') && !CONTROL_RE.test(href) && href.length <= 2048
+  )
+}
+
+export type BodySegment = { text: string; href?: string }
+
+/** A note body cut into plain text and the http(s) links in it, in order; a link it refuses stays text. */
+export function splitLinks(body: string): BodySegment[] {
+  const segments: BodySegment[] = []
+  let at = 0
+  for (const match of body.matchAll(LINK_RE)) {
+    const href = trimTrailing(match[0])
+    if (!openable(href)) continue
+    const start = match.index ?? 0
+    if (start > at) segments.push({ text: body.slice(at, start) })
+    segments.push({ text: href, href })
+    at = start + href.length
+  }
+  if (at < body.length || segments.length === 0) segments.push({ text: body.slice(at) })
+  return segments
 }

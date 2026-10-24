@@ -6,6 +6,9 @@ export type TaskRef = { shortId: number; title: string; status: string }
 
 export type Note = { body: string; created: string }
 
+/** One note from tasqx's inbox (`tasqx notes`), not a task annotation. */
+export type InboxNote = { shortId: number; body: string; hasLinks: boolean; created: string }
+
 export type MemoryHit = { title: string; source: string; snippet: string }
 
 export type ActiveTask = {
@@ -71,6 +74,11 @@ export type Snapshot = {
   recentDone: TaskRef[]
   stats: StatusCount[]
   rulings: Ruling[]
+  /** open notes, newest first, under the links filter when it is on */
+  notes: InboxNote[]
+  notesTotal: number
+  /** why the notes could not be read (a tasqx before 0.16.0 has none), else null */
+  notesError: string | null
   /** Open tasks left at the end of each of the last days, oldest first. */
   burndown: Burndown
   fetchedAt: number
@@ -79,7 +87,7 @@ export type Snapshot = {
   error: string | null
 }
 
-export type Tab = 'task' | 'queue' | 'project' | 'memory'
+export type Tab = 'task' | 'queue' | 'project' | 'memory' | 'notes'
 
 declare module 'claude-code' {
   interface PluginState {
@@ -90,6 +98,10 @@ declare module 'claude-code' {
       tag: string | null
       /** When this session started (ms), for rulings added during it. */
       sessionStart: number | null
+      /** Whether the notes tab shows only notes with a URL. */
+      notesLinks: boolean
+      /** The note whose Remove waits for its second press. */
+      confirmRemove: number | null
     }
   }
 }

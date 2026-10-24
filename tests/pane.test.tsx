@@ -45,12 +45,25 @@ const ANSWERS: Array<[string, unknown]> = [
   ['report status project:demo', { groups: [{ status: 'done', count: 1, est_total: 'PT1H', tracked_total: 'PT50M', overdue: 0 }] }],
   ['memory list', { docs: [{ title: 'Always rebase', body_preview: 'Ruling: rebase, never merge.' }] }],
   ['chart burndown project:demo', { series: [{ date: '2026-10-17', remaining: 4 }, { date: '2026-10-18', remaining: 3 }, { date: '2026-10-19', remaining: 2 }] }],
+  [
+    'notes',
+    {
+      notes: [
+        { short_id: 3, body: 'read https://example.com/post. later', has_links: true, created: '2026-10-19T11:00:00Z' },
+        { short_id: 1, body: 'an idea', has_links: false, created: '2026-10-18T12:00:00Z' },
+      ],
+      total: 2,
+    },
+  ],
+  ['note --json --', { short_id: 4, body: 'x' }],
+  ['note 3 promote task', { note: { short_id: 3 }, task: { short_id: 12, title: 'read' } }],
+  ['note 3', { short_id: 3 }],
   ['check set', { ok: true }],
   ['start', { status: 'active' }],
   ['stop', { status: 'pending' }],
 ]
 
-function fakeWorld(on: On, calls: string[], repoRoot = '/home/me/demo', filled: string[] = [], store: Record<string, unknown> = {}) {
+function fakeWorld(on: On, calls: string[], repoRoot = '/home/me/demo', filled: string[] = [], store: Record<string, unknown> = {}, answers = ANSWERS) {
   on('prompt.fill', ($, e) => {
     filled.push(e.text)
     return { isFilled: true }
@@ -58,7 +71,7 @@ function fakeWorld(on: On, calls: string[], repoRoot = '/home/me/demo', filled: 
   on('process.run', ($, e) => {
     const args = e.argv.slice(1).filter(a => a !== '--json').join(' ')
     calls.push(args)
-    const hit = ANSWERS.find(([prefix]) => args.startsWith(prefix))
+    const hit = answers.find(([prefix]) => args.startsWith(prefix))
     return {
       value: {
         exitCode: hit ? 0 : 2,
@@ -288,5 +301,88 @@ test('with Tell Claude off, Start adds no note', { options: { tellClaude: 'off' 
   const ui = await $.ui.mount({ plugin: 'tasqx-pane', surface: 'terminal', component: 'Pane', requestId: 'tasqx', props: PANE_PROPS })
   await ui.press({ key: 'start-9' })
   expect(noteTexts(session)).toEqual([])
+  await ui.unmount()
+})
+
+test('the notes tab lists every open note, a URL in it a link, and captures a new one', async ($, on) => {
+  const calls: string[] = []
+  fakeWorld(on, calls)
+  mock.clock(on, { now: NOW })
+  await $.command.run(typed('notes'))
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ plugin: 'tasqx-pane', surface, component: 'Pane', requestId: 'tasqx', props: PANE_PROPS })
+    // the trailing full stop is prose, not part of the link
+    expect((await ui.find({ type: 'Link' }))?.props.href).toBe('https://example.com/post')
+    expect(await ui.find({ type: 'Text', text: /an idea/ })).toBeDefined()
+    await ui.unmount()
+  }
+  const ui = await $.ui.mount({ plugin: 'tasqx-pane', surface: 'desktop', component: 'Pane', requestId: 'tasqx', props: PANE_PROPS })
+  await ui.input({ key: 'note-capture', text: '  7  ' })
+  // the fake drops --json: what reached tasqx was `note --json -- 7`
+  expect(calls).toContain('note -- 7')
+  await ui.unmount()
+  // every note, not this project's alone
+  expect(calls.filter(c => c.startsWith('notes')).every(c => !c.includes('--project'))).toBe(true)
+})
+
+test('Remove asks for a second press, and any other press calls it off', async ($, on) => {
+  const calls: string[] = []
+  fakeWorld(on, calls)
+  const clock = mock.clock(on, { now: NOW })
+  await $.command.run(typed('notes'))
+
+  const ui = await $.ui.mount({ plugin: 'tasqx-pane', surface: 'terminal', component: 'Pane', requestId: 'tasqx', props: PANE_PROPS })
+  await ui.press({ key: 'remove-3' })
+  expect(calls.some(c => c.endsWith(' rm'))).toBe(false)
+  expect((await ui.find({ key: 'remove-3' }))?.props.label).toBe('Press again to remove')
+  await ui.press({ key: 'archive-1' })
+  expect(calls).toContain('note 1 archive')
+  // the refresh after a write reads the notes again once the clock moves
+  await clock.advance(1)
+  expect((await ui.find({ key: 'remove-3' }))?.props.label).toBe('Remove')
+  await ui.press({ key: 'remove-3' })
+  await ui.press({ key: 'remove-3' })
+  expect(calls).toContain('note 3 rm')
+  await ui.unmount()
+})
+
+test('promoting a note to a task tells Claude which task it became', async ($, on) => {
+  const calls: string[] = []
+  fakeWorld(on, calls)
+  const session = mock.session(on)
+  mock.clock(on, { now: NOW })
+  await $.command.run(typed('notes'))
+
+  const ui = await $.ui.mount({ plugin: 'tasqx-pane', surface: 'terminal', component: 'Pane', requestId: 'tasqx', props: PANE_PROPS })
+  await ui.press({ key: 'totask-3' })
+  expect(calls).toContain('note 3 promote task')
+  expect(noteTexts(session).some(t => t.includes('note #3 to task #12'))).toBe(true)
+  await ui.unmount()
+})
+
+test('the links filter reads notes --links', async ($, on) => {
+  const calls: string[] = []
+  fakeWorld(on, calls)
+  mock.clock(on, { now: NOW })
+  await $.command.run(typed('notes'))
+
+  const ui = await $.ui.mount({ plugin: 'tasqx-pane', surface: 'terminal', component: 'Pane', requestId: 'tasqx', props: PANE_PROPS })
+  await ui.press({ key: 'notes-links' })
+  expect(calls).toContain('notes --links')
+  expect((await ui.find({ key: 'notes-links' }))?.props.label).toBe('All notes')
+  await ui.unmount()
+})
+
+test('a tasqx without notes breaks the notes tab alone', async ($, on) => {
+  // tasqx 0.15 knows no `notes`: the fake answers it with exit 2
+  fakeWorld(on, [], '/home/me/demo', [], {}, ANSWERS.filter(([prefix]) => prefix !== 'notes'))
+  mock.clock(on, { now: NOW })
+  await $.command.run(typed('notes'))
+
+  const ui = await $.ui.mount({ plugin: 'tasqx-pane', surface: 'terminal', component: 'Pane', requestId: 'tasqx', props: PANE_PROPS })
+  expect(await ui.find({ type: 'Text', text: /Notes need tasqx 0\.16\.0/ })).toBeDefined()
+  await ui.press({ key: 'tab-task' })
+  expect(await ui.find({ type: 'Text', text: /^Ship the pane$/ })).toBeDefined()
   await ui.unmount()
 })
