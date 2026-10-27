@@ -483,7 +483,7 @@ export const register: Register = (on, options) => {
               options={[
                 // a placeholder, so the picker does not look like the first project is chosen
                 ...(snap.project ? [] : [{ value: '', label: 'pick a project' }]),
-                ...snap.projects.map(p => ({ value: p })),
+                ...lib.pickerValues(snap.projects, snap.project, snap.project ? 64 : 63).map(p => ({ value: p })),
               ]}
               value={snap.project ?? ''}
               onSelect={p => void (p && chooseProject($, p))}
@@ -745,7 +745,7 @@ export const register: Register = (on, options) => {
               options={[
                 { value: '', label: 'all tags' },
                 // keep a picked tag that left the working set, so the picker still shows it
-                ...[...new Set([...snap.tags, ...(tag ? [tag] : [])])].map(t => ({ value: t, label: `+${t}` })),
+                ...lib.pickerValues(snap.tags, tag, 63).map(t => ({ value: t, label: `+${t}` })),
               ]}
               value={tag ?? ''}
               onSelect={t => void update($, tagFilter, () => t || null).then(() => refresh($, true, true))}

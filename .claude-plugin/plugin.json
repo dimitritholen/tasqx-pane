@@ -1,6 +1,6 @@
 {
   "name": "tasqx-pane",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "A pane with your active tasqx task, the project's queue, its numbers, its standing rulings and your notes, in every repo that has a tasqx project.",
   "author": {
     "name": "Dimitri Tholen"

@@ -238,3 +238,16 @@ describe('notes', () => {
     })
   })
 })
+
+describe('pickerValues', () => {
+  const many = Array.from({ length: 84 }, (_, i) => `p${i}`)
+  test('caps the list and keeps the current choice in it', () => {
+    expect(lib.pickerValues(many, null, 63)).toHaveLength(63)
+    const kept = lib.pickerValues(many, 'p80', 64)
+    expect(kept).toHaveLength(64)
+    expect(kept).toContain('p80')
+  })
+  test('adds a choice that left a short list, without duplicates', () => {
+    expect(lib.pickerValues(['a', 'b', 'a'], 'c', 63)).toEqual(['a', 'b', 'c'])
+  })
+})

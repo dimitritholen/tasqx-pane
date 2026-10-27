@@ -56,6 +56,14 @@ export function bar(ratio: number, width: number): string {
   return `[${'#'.repeat(filled)}${'-'.repeat(cells - filled)}]`
 }
 
+/** A Select takes 1 to 64 options: the first `room` values, `keep` (the current choice) always among them. */
+export function pickerValues(values: string[], keep: string | null, room: number): string[] {
+  const shown = [...new Set(values)].slice(0, room)
+  // shortcut: values past `room` cannot be picked here, only by config or the tasqx CLI; upgrade to a search field if that bites
+  if (keep && !shown.includes(keep)) shown.splice(Math.min(shown.length, room - 1), 1, keep)
+  return shown
+}
+
 export function firstParagraph(body: string | null | undefined): string | null {
   if (!body) return null
   const para = body.trim().split(/\n\s*\n/)[0]?.trim()
